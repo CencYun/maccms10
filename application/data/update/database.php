@@ -9,7 +9,7 @@ if(empty($col_list[$pre.'website'])){
     $sql .="\r";
 }
 if(empty($col_list[$pre.'manga'])){
-    $sql .= "CREATE TABLE `{$pre}manga` ( `manga_id` int(10) unsigned NOT NULL AUTO_INCREMENT COMMENT '漫画ID', `type_id` smallint(6) unsigned NOT NULL DEFAULT '0' COMMENT '主分类ID', `type_id_1` smallint(6) unsigned NOT NULL DEFAULT '0' COMMENT '副分类ID', `group_id` smallint(6) unsigned NOT NULL DEFAULT '0' COMMENT '会员组ID', `manga_name` varchar(255) NOT NULL DEFAULT '' COMMENT '漫画名称', `manga_sub` varchar(255) NOT NULL DEFAULT '' COMMENT '副标题', `manga_en` varchar(255) NOT NULL DEFAULT '' COMMENT '英文名', `manga_status` tinyint(1) unsigned NOT NULL DEFAULT '0' COMMENT '状态(0=锁定,1=正常)', `manga_letter` char(1) NOT NULL DEFAULT '' COMMENT '首字母', `manga_color` varchar(6) NOT NULL DEFAULT '' COMMENT '标题颜色', `manga_from` varchar(30) NOT NULL DEFAULT '' COMMENT '来源', `manga_author` varchar(255) NOT NULL DEFAULT '' COMMENT '作者', `manga_tag` varchar(100) NOT NULL DEFAULT '' COMMENT '标签', `manga_class` varchar(255) NOT NULL DEFAULT '' COMMENT '扩展分类', `manga_pic` varchar(1024) NOT NULL DEFAULT '' COMMENT '封面图', `manga_pic_thumb` varchar(1024) NOT NULL DEFAULT '' COMMENT '封面缩略图', `manga_pic_slide` varchar(1024) NOT NULL DEFAULT '' COMMENT '封面幻灯图', `manga_pic_screenshot` text DEFAULT NULL COMMENT '内容截图', `manga_blurb` varchar(255) NOT NULL DEFAULT '' COMMENT '简介', `manga_remarks` varchar(100) NOT NULL DEFAULT '' COMMENT '备注(例如：更新至xx话)', `manga_jumpurl` varchar(150) NOT NULL DEFAULT '' COMMENT '跳转URL', `manga_tpl` varchar(30) NOT NULL DEFAULT '' COMMENT '独立模板', `manga_level` tinyint(1) unsigned NOT NULL DEFAULT '0' COMMENT '推荐级别', `manga_lock` tinyint(1) unsigned NOT NULL DEFAULT '0' COMMENT '锁定状态(0=未锁,1=已锁)', `manga_points` smallint(6) unsigned NOT NULL DEFAULT '0' COMMENT '点播所需积分', `manga_points_detail` smallint(6) unsigned NOT NULL DEFAULT '0' COMMENT '每章所需积分', `manga_up` mediumint(8) unsigned NOT NULL DEFAULT '0' COMMENT '顶数', `manga_down` mediumint(8) unsigned NOT NULL DEFAULT '0' COMMENT '踩数', `manga_hits` mediumint(8) unsigned NOT NULL DEFAULT '0' COMMENT '总点击数', `manga_hits_day` mediumint(8) unsigned NOT NULL DEFAULT '0' COMMENT '日点击数', `manga_hits_week` mediumint(8) unsigned NOT NULL DEFAULT '0' COMMENT '周点击数', `manga_hits_month` mediumint(8) unsigned NOT NULL DEFAULT '0' COMMENT '月点击数', `manga_time` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '更新时间', `manga_time_add` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '添加时间', `manga_time_hits` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '点击时间', `manga_time_make` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '生成时间', `manga_score` decimal(3,1) unsigned NOT NULL DEFAULT '0.0' COMMENT '平均评分', `manga_score_all` mediumint(8) unsigned NOT NULL DEFAULT '0' COMMENT '总评分', `manga_score_num` mediumint(8) unsigned NOT NULL DEFAULT '0' COMMENT '评分次数', `manga_rel_manga` varchar(255) NOT NULL DEFAULT '' COMMENT '关联漫画', `manga_rel_vod` varchar(255) NOT NULL DEFAULT '' COMMENT '关联视频', `manga_pwd` varchar(10) NOT NULL DEFAULT '' COMMENT '访问密码', `manga_pwd_url` varchar(255) NOT NULL DEFAULT '' COMMENT '密码跳转URL', `manga_content` mediumtext DEFAULT NULL COMMENT '详细介绍', `manga_serial` varchar(20) NOT NULL DEFAULT '0' COMMENT '连载状态(文字)', `manga_total` mediumint(8) unsigned NOT NULL DEFAULT '0' COMMENT '总章节数', `manga_chapter_from` varchar(255) NOT NULL DEFAULT '' COMMENT '章节来源', `manga_chapter_url` mediumtext DEFAULT NULL COMMENT '章节URL列表', `manga_last_update_time` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '最后更新时间戳', `manga_age_rating` tinyint(1) unsigned NOT NULL DEFAULT '0' COMMENT '年龄分级(0=全年龄,1=12+,2=18+)', `manga_orientation` tinyint(1) unsigned NOT NULL DEFAULT '0' COMMENT '阅读方向(1=左到右,2=右到左,3=垂直)', `manga_is_vip` tinyint(1) unsigned NOT NULL DEFAULT '0' COMMENT '是否VIP(0=否,1=是)', `manga_copyright_info` varchar(255) NOT NULL DEFAULT '' COMMENT '版权信息', PRIMARY KEY (`manga_id`), KEY `type_id` (`type_id`) USING BTREE, KEY `type_id_1` (`type_id_1`) USING BTREE, KEY `manga_level` (`manga_level`) USING BTREE, KEY `manga_hits` (`manga_hits`) USING BTREE, KEY `manga_time` (`manga_time`) USING BTREE, KEY `manga_letter` (`manga_letter`) USING BTREE, KEY `manga_down` (`manga_down`) USING BTREE, KEY `manga_up` (`manga_up`) USING BTREE, KEY `manga_tag` (`manga_tag`) USING BTREE, KEY `manga_name` (`manga_name`) USING BTREE, KEY `manga_en` (`manga_en`) USING BTREE, KEY `manga_hits_day` (`manga_hits_day`) USING BTREE, KEY `manga_hits_week` (`manga_hits_week`) USING BTREE, KEY `manga_hits_month` (`manga_hits_month`) USING BTREE, KEY `manga_time_add` (`manga_time_add`) USING BTREE, KEY `manga_time_make` (`manga_time_make`) USING BTREE, KEY `manga_lock` (`manga_lock`), KEY `manga_score` (`manga_score`), KEY `manga_score_all` (`manga_score_all`), KEY `manga_score_num` (`manga_score_num`) ) ENGINE=MyISAM AUTO_INCREMENT=1 DEFAULT CHARSET=utf8 COMMENT='漫画表';";
+    $sql .= "CREATE TABLE `{$pre}manga` ( `manga_id` int(10) unsigned NOT NULL AUTO_INCREMENT COMMENT '漫画ID', `type_id` smallint(6) unsigned NOT NULL DEFAULT '0' COMMENT '主分类ID', `type_id_1` smallint(6) unsigned NOT NULL DEFAULT '0' COMMENT '副分类ID', `group_id` smallint(6) unsigned NOT NULL DEFAULT '0' COMMENT '会员组ID', `manga_name` varchar(255) NOT NULL DEFAULT '' COMMENT '漫画名称', `manga_sub` varchar(255) NOT NULL DEFAULT '' COMMENT '副标题', `manga_en` varchar(255) NOT NULL DEFAULT '' COMMENT '英文名', `manga_status` tinyint(1) unsigned NOT NULL DEFAULT '0' COMMENT '状态(0=锁定,1=正常)', `manga_letter` char(1) NOT NULL DEFAULT '' COMMENT '首字母', `manga_color` varchar(6) NOT NULL DEFAULT '' COMMENT '标题颜色', `manga_from` varchar(30) NOT NULL DEFAULT '' COMMENT '来源', `manga_author` varchar(255) NOT NULL DEFAULT '' COMMENT '作者', `manga_tag` varchar(100) NOT NULL DEFAULT '' COMMENT '标签', `manga_class` varchar(255) NOT NULL DEFAULT '' COMMENT '扩展分类', `manga_pic` varchar(1024) NOT NULL DEFAULT '' COMMENT '封面图', `manga_pic_thumb` varchar(1024) NOT NULL DEFAULT '' COMMENT '封面缩略图', `manga_pic_slide` varchar(1024) NOT NULL DEFAULT '' COMMENT '封面幻灯图', `manga_pic_screenshot` text DEFAULT NULL COMMENT '内容截图', `manga_blurb` varchar(255) NOT NULL DEFAULT '' COMMENT '简介', `manga_remarks` varchar(100) NOT NULL DEFAULT '' COMMENT '备注(例如：更新至xx话)', `manga_jumpurl` varchar(150) NOT NULL DEFAULT '' COMMENT '跳转URL', `manga_tpl` varchar(30) NOT NULL DEFAULT '' COMMENT '独立模板', `manga_level` tinyint(1) unsigned NOT NULL DEFAULT '0' COMMENT '推荐级别', `manga_lock` tinyint(1) unsigned NOT NULL DEFAULT '0' COMMENT '锁定状态(0=未锁,1=已锁)', `manga_points` smallint(6) unsigned NOT NULL DEFAULT '0' COMMENT '点播所需积分', `manga_points_detail` smallint(6) unsigned NOT NULL DEFAULT '0' COMMENT '每章所需积分', `manga_up` mediumint(8) unsigned NOT NULL DEFAULT '0' COMMENT '顶数', `manga_down` mediumint(8) unsigned NOT NULL DEFAULT '0' COMMENT '踩数', `manga_hits` mediumint(8) unsigned NOT NULL DEFAULT '0' COMMENT '总点击数', `manga_hits_day` mediumint(8) unsigned NOT NULL DEFAULT '0' COMMENT '日点击数', `manga_hits_week` mediumint(8) unsigned NOT NULL DEFAULT '0' COMMENT '周点击数', `manga_hits_month` mediumint(8) unsigned NOT NULL DEFAULT '0' COMMENT '月点击数', `manga_time` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '更新时间', `manga_time_add` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '添加时间', `manga_time_hits` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '点击时间', `manga_time_make` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '生成时间', `manga_score` decimal(3,1) unsigned NOT NULL DEFAULT '0.0' COMMENT '平均评分', `manga_score_all` mediumint(8) unsigned NOT NULL DEFAULT '0' COMMENT '总评分', `manga_score_num` mediumint(8) unsigned NOT NULL DEFAULT '0' COMMENT '评分次数', `manga_rel_manga` varchar(255) NOT NULL DEFAULT '' COMMENT '关联漫画', `manga_rel_vod` varchar(255) NOT NULL DEFAULT '' COMMENT '关联视频', `manga_pwd` varchar(10) NOT NULL DEFAULT '' COMMENT '访问密码', `manga_pwd_url` varchar(255) NOT NULL DEFAULT '' COMMENT '密码跳转URL', `manga_content` mediumtext DEFAULT NULL COMMENT '详细介绍', `manga_serial` varchar(20) NOT NULL DEFAULT '0' COMMENT '连载状态(文字)', `manga_total` mediumint(8) unsigned NOT NULL DEFAULT '0' COMMENT '总章节数', `manga_chapter_from` varchar(255) NOT NULL DEFAULT '' COMMENT '章节来源', `manga_chapter_url` mediumtext DEFAULT NULL COMMENT '章节URL列表', `manga_last_update_time` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '最后更新时间戳', `manga_age_rating` tinyint(1) unsigned NOT NULL DEFAULT '0' COMMENT '年龄分级(0=全年龄,1=12+,2=18+)', `manga_orientation` tinyint(1) unsigned NOT NULL DEFAULT '0' COMMENT '阅读方向(1=左到右,2=右到左,3=垂直)', `manga_is_vip` tinyint(1) unsigned NOT NULL DEFAULT '0' COMMENT '是否VIP(0=否,1=是)', `manga_copyright_info` varchar(255) NOT NULL DEFAULT '' COMMENT '版权信息', `manga_check_state` tinyint(1) unsigned NOT NULL DEFAULT '0' COMMENT '资源检测 0未检测 1正常 2失败 3已自动停用', `manga_check_reason` varchar(255) NOT NULL DEFAULT '' COMMENT '资源检测原因', `manga_check_time` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '资源检测时间', PRIMARY KEY (`manga_id`), KEY `type_id` (`type_id`) USING BTREE, KEY `type_id_1` (`type_id_1`) USING BTREE, KEY `manga_level` (`manga_level`) USING BTREE, KEY `manga_hits` (`manga_hits`) USING BTREE, KEY `manga_time` (`manga_time`) USING BTREE, KEY `manga_letter` (`manga_letter`) USING BTREE, KEY `manga_down` (`manga_down`) USING BTREE, KEY `manga_up` (`manga_up`) USING BTREE, KEY `manga_tag` (`manga_tag`) USING BTREE, KEY `manga_name` (`manga_name`) USING BTREE, KEY `manga_en` (`manga_en`) USING BTREE, KEY `manga_hits_day` (`manga_hits_day`) USING BTREE, KEY `manga_hits_week` (`manga_hits_week`) USING BTREE, KEY `manga_hits_month` (`manga_hits_month`) USING BTREE, KEY `manga_time_add` (`manga_time_add`) USING BTREE, KEY `manga_time_make` (`manga_time_make`) USING BTREE, KEY `manga_lock` (`manga_lock`), KEY `manga_score` (`manga_score`), KEY `manga_score_all` (`manga_score_all`), KEY `manga_score_num` (`manga_score_num`), KEY `manga_check_state` (`manga_check_state`) ) ENGINE=MyISAM AUTO_INCREMENT=1 DEFAULT CHARSET=utf8 COMMENT='漫画表';";
     $sql .="\r";
 }
 /*updates*/
@@ -276,7 +276,7 @@ if(empty($col_list[$pre.'seckill_user'])){
         ],
         'content_quality' => [
             'id'      => 'content_quality',
-            'status'  => '0',
+            'status'  => '1',
             'name'    => 'content_quality',
             'des'     => '内容质量分批量计算',
             'file'    => 'content_quality',
@@ -287,7 +287,7 @@ if(empty($col_list[$pre.'seckill_user'])){
         ],
         'content_quality_art' => [
             'id'      => 'content_quality_art',
-            'status'  => '0',
+            'status'  => '1',
             'name'    => 'content_quality_art',
             'des'     => '内容质量分批量计算-文章',
             'file'    => 'content_quality',
@@ -555,6 +555,14 @@ foreach (['vod', 'art', 'manga'] as $module) {
         $sql .= "\r";
     }
 }
+//资源检测字段（ContentCheck 每日检测视频播放地址 / 漫画章节 / 封面）
+//表不存在时由上方 CREATE 建表（manga 的 CREATE 已含 check_* 字段），$col_list 是升级前快照，这里只补存量表
+foreach (['vod', 'art', 'manga'] as $module) {
+    if (!empty($col_list[$pre . $module]) && empty($col_list[$pre . $module][$module . '_check_state'])) {
+        $sql .= "ALTER TABLE `{$pre}{$module}` ADD `{$module}_check_state` tinyint(1) unsigned NOT NULL DEFAULT '0' COMMENT '资源检测 0未检测 1正常 2失败 3已自动停用', ADD `{$module}_check_reason` varchar(255) NOT NULL DEFAULT '' COMMENT '资源检测原因', ADD `{$module}_check_time` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '资源检测时间', ADD INDEX `{$module}_check_state` (`{$module}_check_state`);";
+        $sql .= "\r";
+    }
+}
 //新增运营统计数据表
 if(empty($col_list[$pre.'analytics_day_overview'])){
     $sql .= "CREATE TABLE `{$pre}analytics_day_overview` (`stat_date` date NOT NULL COMMENT '统计日（站点时区日历日）',`pv` bigint(20) unsigned NOT NULL DEFAULT '0' COMMENT '页面浏览量',`uv` bigint(20) unsigned NOT NULL DEFAULT '0' COMMENT '独立访客（按 visitor_id/cookie 去重，由任务写入）',`session_cnt` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '会话数',`new_reg` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '新注册用户数',`user_login_dau` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '登录日活（当日有登录行为的用户数）',`user_active_mau` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '月活（自然月内去重活跃，可月末回填或滚动窗口）',`order_paid_cnt` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '已支付订单笔数',`order_paid_amount` decimal(14,2) unsigned NOT NULL DEFAULT '0.00' COMMENT '已支付订单金额',`recharge_amount` decimal(14,2) unsigned NOT NULL DEFAULT '0.00' COMMENT '充值类金额（可与订单拆分或等于 order 中充值类型汇总）',`ad_impression` bigint(20) unsigned NOT NULL DEFAULT '0' COMMENT '广告曝光',`ad_click` bigint(20) unsigned NOT NULL DEFAULT '0' COMMENT '广告点击',`avg_session_duration_sec` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '平均会话时长（秒）',`bounce_rate` decimal(6,2) NOT NULL DEFAULT '0.00' COMMENT '跳出率 0-100（单页会话/总会话）',`retention_d1` decimal(6,2) NOT NULL DEFAULT '0.00' COMMENT '次日留存率 0-100（按 cohort 任务写入）',`retention_d7` decimal(6,2) NOT NULL DEFAULT '0.00' COMMENT '7日留存率',`retention_d30` decimal(6,2) NOT NULL DEFAULT '0.00' COMMENT '30日留存率',`pv_web` bigint(20) unsigned NOT NULL DEFAULT '0' COMMENT 'Web 端 PV',`pv_h5` bigint(20) unsigned NOT NULL DEFAULT '0' COMMENT 'H5 端 PV',`pv_android` bigint(20) unsigned NOT NULL DEFAULT '0' COMMENT 'Android PV',`pv_ios` bigint(20) unsigned NOT NULL DEFAULT '0' COMMENT 'iOS PV',`pv_other` bigint(20) unsigned NOT NULL DEFAULT '0' COMMENT '未知/其它端 PV',`updated_at` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '本条汇总更新时间 UNIX',PRIMARY KEY (`stat_date`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='运营统计-全站按日汇总';";
@@ -584,6 +592,41 @@ if(empty($col_list[$pre.'analytics_content_day'])){
     $sql .= "CREATE TABLE `{$pre}analytics_content_day` (`stat_date` date NOT NULL,`mid` tinyint(3) unsigned NOT NULL COMMENT '1视频2文章8漫画',`content_id` int(10) unsigned NOT NULL,`type_id` smallint(6) unsigned NOT NULL DEFAULT '0' COMMENT '分类，冗余便于按类分析',`view_pv` bigint(20) unsigned NOT NULL DEFAULT '0',`view_uv` bigint(20) unsigned NOT NULL DEFAULT '0',`play_or_read_cnt` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '播放/阅读次数（按业务定义）',`avg_stay_ms` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '平均停留',`bounce_cnt` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '仅访问该内容即离开的会话数（任务算）',`collect_add` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '收藏新增',`want_add` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '想看新增',`order_cnt` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '关联订单数（付费转化）',`order_amount` decimal(14,2) unsigned NOT NULL DEFAULT '0.00',`updated_at` int(10) unsigned NOT NULL DEFAULT '0',PRIMARY KEY (`stat_date`,`mid`,`content_id`),KEY `idx_date_type` (`stat_date`,`type_id`),KEY `idx_hot` (`stat_date`,`view_pv`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='运营统计-内容按日效果';";
     $sql .="\r";
 }
+// 运营统计-零曝光内容：NOT EXISTS 相关子查询按 mid+content_id 探测该内容在时间窗内是否有曝光行，
+// 主键是 (stat_date,mid,content_id)，mid/content_id 不在前导列，探测退化为按 stat_date 扫描。
+// 补一条 (mid,content_id,stat_date) 索引，让每次探测都是索引内的定位+小范围扫描。
+if(!empty($col_list[$pre.'analytics_content_day'])){
+    $index_exists = \think\Db::query("SHOW INDEX FROM `{$pre}analytics_content_day` WHERE Key_name = 'idx_mid_content_date'");
+    if(empty($index_exists)){
+        $sql .= "ALTER TABLE `{$pre}analytics_content_day` ADD INDEX `idx_mid_content_date` (`mid`,`content_id`,`stat_date`);";
+        $sql .="\r";
+    }
+}
+// 运营统计-零曝光内容：{vod,art,manga} 的 status 列此前完全没有索引，查询按
+// status=1 过滤并按 time_add 倒序取前 N 条，命中 NOT EXISTS 子查询时会退化为
+// 近似全表扫描逐行探测。补 (status,time_add) 复合索引后可直接按索引顺序扫描，
+// 命中 LIMIT 即可停止，同时也惠及前台一般的“已审+按时间排序”列表查询。
+if(!empty($col_list[$pre.'vod'])){
+    $index_exists = \think\Db::query("SHOW INDEX FROM `{$pre}vod` WHERE Key_name = 'idx_status_time_add'");
+    if(empty($index_exists)){
+        $sql .= "ALTER TABLE `{$pre}vod` ADD INDEX `idx_status_time_add` (`vod_status`,`vod_time_add`);";
+        $sql .="\r";
+    }
+}
+if(!empty($col_list[$pre.'art'])){
+    $index_exists = \think\Db::query("SHOW INDEX FROM `{$pre}art` WHERE Key_name = 'idx_status_time_add'");
+    if(empty($index_exists)){
+        $sql .= "ALTER TABLE `{$pre}art` ADD INDEX `idx_status_time_add` (`art_status`,`art_time_add`);";
+        $sql .="\r";
+    }
+}
+if(!empty($col_list[$pre.'manga'])){
+    $index_exists = \think\Db::query("SHOW INDEX FROM `{$pre}manga` WHERE Key_name = 'idx_status_time_add'");
+    if(empty($index_exists)){
+        $sql .= "ALTER TABLE `{$pre}manga` ADD INDEX `idx_status_time_add` (`manga_status`,`manga_time_add`);";
+        $sql .="\r";
+    }
+}
 if(empty($col_list[$pre.'analytics_retention_cohort'])){
     $sql .= "CREATE TABLE `{$pre}analytics_retention_cohort` (`cohort_date` date NOT NULL COMMENT 'cohort 基准日（常用：注册日）',`cohort_type` varchar(16) NOT NULL DEFAULT 'register',`return_day` smallint(5) unsigned NOT NULL COMMENT '回访间隔天 0=当日 1=次日',`user_cnt` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '该日仍活跃用户数',`updated_at` int(10) unsigned NOT NULL DEFAULT '0',PRIMARY KEY (`cohort_date`,`cohort_type`,`return_day`),KEY `idx_cohort` (`cohort_date`,`cohort_type`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='运营统计-留存 cohort';";
     $sql .="\r";
@@ -596,6 +639,12 @@ if(empty($col_list[$pre.'content_ai_annotation'])){
 //内容质量分
 if(empty($col_list[$pre.'content_quality'])){
     $sql .= "CREATE TABLE `{$pre}content_quality` (`id` int(11) unsigned NOT NULL AUTO_INCREMENT,`mid` tinyint(1) unsigned NOT NULL DEFAULT '0' COMMENT '模块 1=视频 2=文章',`content_id` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '内容 ID',`type_id` smallint(6) unsigned NOT NULL DEFAULT '0' COMMENT '分类，冗余便于按类分析',`score_total` decimal(5,2) NOT NULL DEFAULT '0.00' COMMENT '综合质量分',`score_behavior` decimal(5,2) NOT NULL DEFAULT '0.00' COMMENT '行为分',`score_interact` decimal(5,2) NOT NULL DEFAULT '0.00' COMMENT '互动分',`score_complete` decimal(5,2) NOT NULL DEFAULT '0.00' COMMENT '完整度分',`score_fresh` decimal(5,2) NOT NULL DEFAULT '0.00' COMMENT '新鲜度分',`is_cold_start` tinyint(1) unsigned NOT NULL DEFAULT '0' COMMENT '是否冷启动内容',`calc_date` date NOT NULL DEFAULT '1970-01-01' COMMENT '计算日期',`time_add` int(10) unsigned NOT NULL DEFAULT '0',`time_update` int(10) unsigned NOT NULL DEFAULT '0',PRIMARY KEY (`id`),UNIQUE KEY `uk_obj` (`mid`,`content_id`),KEY `idx_score` (`mid`,`score_total`),KEY `idx_type` (`type_id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='内容质量分';";
+    $sql .= "\r";
+}
+//内容级多语言（vod/art/... 的可翻译字段整体存 JSON，缺失时回退默认语言原文）。
+//install.sql 已含同表；存量站点走在线升级必须在此补建，否则 System 里启用第二语言后前台报表不存在。
+if(empty($col_list[$pre.'content_lang'])){
+    $sql .= "CREATE TABLE `{$pre}content_lang` (`id` int(10) unsigned NOT NULL AUTO_INCREMENT,`content_type` varchar(20) NOT NULL DEFAULT '' COMMENT 'vod|art',`content_id` int(10) unsigned NOT NULL DEFAULT '0',`lang_code` varchar(10) NOT NULL DEFAULT '' COMMENT '如 en-us、ja-jp',`data` mediumtext COMMENT 'JSON: {vod_name, vod_sub, vod_blurb, vod_content, ...}',`status` tinyint(1) unsigned NOT NULL DEFAULT '0' COMMENT '0=机翻未校对 1=已人工校对',`source` varchar(10) NOT NULL DEFAULT 'manual' COMMENT 'manual|mt',`update_time` int(10) unsigned NOT NULL DEFAULT '0',PRIMARY KEY (`id`),UNIQUE KEY `uniq_item_lang` (`content_type`,`content_id`,`lang_code`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
     $sql .= "\r";
 }
 //用户画像

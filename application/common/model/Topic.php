@@ -282,7 +282,8 @@ class Topic extends Base {
                 $res = $this->listData($where,$order,$page,$num,$start,'*',$totalshow);
             }
             if($GLOBALS['config']['app']['cache_core']==1 && !$use_rnd_order) {
-                Cache::set($cach_name, $res, $cachetime);
+                // 打上表名标签，写路径才能定点作废这一族列表缓存（见 Base::clearListCache()）
+                Cache::tag($this->name)->set($cach_name, $res, $cachetime);
             }
         }
         $res['pageurl'] = $pageurl;
@@ -365,6 +366,7 @@ class Topic extends Base {
                 Cache::set($key, $info);
             }
         }
+        $info = mac_content_lang_overlay('topic', $info);
         return ['code'=>1,'msg'=>lang('obtain_ok'),'info'=>$info];
     }
 
@@ -374,12 +376,7 @@ class Topic extends Base {
         if(!$validate->check($data)){
             return ['code'=>1001,'msg'=>lang('param_err').'：'.$validate->getError() ];
         }
-        $key = 'topic_detail_'.$data['topic_id'];
-        Cache::rm($key);
-        $key = 'topic_detail_'.$data['topic_en'];
-        Cache::rm($key);
-        $key = 'topic_detail_'.$data['topic_id'].'_'.$data['topic_en'];
-        Cache::rm($key);
+        $this->clearDetailCache($data['topic_id'], $data['topic_en']);
 
 
         if(empty($data['topic_extend'])){
@@ -455,7 +452,8 @@ class Topic extends Base {
         $ixTopicId = !empty($data['topic_id']) ? intval($data['topic_id']) : intval($this->getLastInsID());
         MeilisearchSync::afterTopicSave($ixTopicId);
 
-        return ['code'=>1,'msg'=>lang('save_ok')];
+        $this->clearListCache();
+        return ['code'=>1,'msg'=>lang('save_ok'),'topic_id'=>$ixTopicId];
     }
 
     public function delData($where)
@@ -465,20 +463,13 @@ class Topic extends Base {
             return ['code'=>1001,'msg'=>lang('del_err').'：'.$this->getError() ];
         }
         $path = './';
+        $delIds = [];
         foreach($list['list'] as $k=>$v){
+            $delIds[] = intval($v['topic_id']);
             MeilisearchSync::deleteTopic(intval($v['topic_id']));
-            $pic = $path.$v['topic_pic'];
-            if(file_exists($pic) && (substr($pic,0,8) == "./upload") || count( explode("./",$pic) ) ==1){
-                unlink($pic);
-            }
-            $pic = $path.$v['topic_pic_thumb'];
-            if(file_exists($pic) && (substr($pic,0,8) == "./upload") || count( explode("./",$pic) ) ==1){
-                unlink($pic);
-            }
-            $pic = $path.$v['topic_pic_slide'];
-            if(file_exists($pic) && (substr($pic,0,8) == "./upload") || count( explode("./",$pic) ) ==1){
-                unlink($pic);
-            }
+            mac_safe_unlink_upload($v['topic_pic']);
+            mac_safe_unlink_upload($v['topic_pic_thumb']);
+            mac_safe_unlink_upload($v['topic_pic_slide']);
             if($GLOBALS['config']['view']['topic_detail'] ==2 ){
                 $lnk = mac_url_topic_detail($v);
                 $lnk = reset_html_filename($lnk);
@@ -491,6 +482,8 @@ class Topic extends Base {
         if($res===false){
             return ['code'=>1001,'msg'=>lang('del_err').'：'.$this->getError() ];
         }
+        \app\common\model\ContentLang::deleteByContent('topic', $delIds);
+        $this->clearListCache();
         return ['code'=>1,'msg'=>lang('del_ok')];
     }
 
@@ -509,12 +502,10 @@ class Topic extends Base {
 
         $list = $this->field('topic_id,topic_name,topic_en')->where($where)->select();
         foreach($list as $k=>$v){
-            $key = 'topic_detail_'.$v['topic_id'];
-            Cache::rm($key);
-            $key = 'topic_detail_'.$v['topic_en'];
-            Cache::rm($key);
+            $this->clearDetailCache($v['topic_id'], $v['topic_en']);
         }
 
+        $this->clearListCache();
         return ['code'=>1,'msg'=>lang('set_ok')];
     }
 

@@ -78,21 +78,31 @@ class System extends Base
                 return $this->ajaxErrorWithFreshToken($msg);
             }
             unset($config['__token__']);
-            $invalidSubmitMsg = '提交数据不完整，请刷新页面后重试';
-            if (
-                !isset($config['site']) || !is_array($config['site']) ||
-                !isset($config['app']) || !is_array($config['app'])
-            ) {
-                return $this->error($invalidSubmitMsg);
-            }
-            $requiredSiteKeys = ['site_name', 'site_url', 'template_dir', 'mob_template_dir'];
-            foreach ($requiredSiteKeys as $requiredKey) {
-                if (!isset($config['site'][$requiredKey]) || trim((string)$config['site'][$requiredKey]) === '') {
-                    return $this->error($invalidSubmitMsg);
+            //只报"提交数据不完整"站长无从下手：既要在文案里指名是哪一项，
+            //也要把表单字段名回给前端，让那个输入框直接标红（见 static_new/js/admin_common.js）
+            $missing = '';
+            $missingField = '';
+            if (!isset($config['site']) || !is_array($config['site'])) {
+                $missing = 'site';
+            } elseif (!isset($config['app']) || !is_array($config['app'])) {
+                $missing = 'app';
+            } else {
+                $requiredKeys = ['site' => ['site_name', 'site_url', 'template_dir', 'mob_template_dir'], 'app' => ['pathinfo_depr']];
+                foreach ($requiredKeys as $grp => $keys) {
+                    foreach ($keys as $key) {
+                        if (!isset($config[$grp][$key]) || trim((string)$config[$grp][$key]) === '') {
+                            $missingField = $grp . '[' . $key . ']';
+                            $missing = lang('admin/system/config/' . $key) . '（' . $missingField . '）';
+                            break 2;
+                        }
+                    }
                 }
             }
-            if (!isset($config['app']['pathinfo_depr']) || trim((string)$config['app']['pathinfo_depr']) === '') {
-                return $this->error($invalidSubmitMsg);
+            if ($missing !== '') {
+                return $this->ajaxErrorWithFreshToken(
+                    lang('admin/system/config/submit_incomplete', [$missing]),
+                    ['invalid_field' => $missingField]
+                );
             }
 
 
@@ -118,6 +128,16 @@ class System extends Base
 
             $config['app']['search_vod_rule'] = join('|', !empty($config['app']['search_vod_rule']) ? (array)$config['app']['search_vod_rule'] : []);
             $config['app']['search_art_rule'] = join('|', !empty($config['app']['search_art_rule']) ? (array)$config['app']['search_art_rule'] : []);
+            $contentLangKnown = ['zh-cn', 'zh-tw', 'en-us', 'ja-jp', 'ko-kr', 'de-de', 'fr-fr', 'es-es', 'pt-pt'];
+            if (empty($config['app']['content_lang_default']) || !in_array($config['app']['content_lang_default'], $contentLangKnown, true)) {
+                $config['app']['content_lang_default'] = 'zh-cn';
+            }
+            $contentLangList = !empty($config['app']['content_lang_list']) ? (array)$config['app']['content_lang_list'] : [];
+            //默认语言必须始终在已启用列表里：前端已做了联动限制，这里再兜底一次，防止绕过表单直接提交
+            if (!in_array($config['app']['content_lang_default'], $contentLangList, true)) {
+                $contentLangList[] = $config['app']['content_lang_default'];
+            }
+            $config['app']['content_lang_list'] = join('|', $contentLangList);
             $config['app']['vod_search_optimise'] = join('|', !empty($config['app']['vod_search_optimise']) ? (array)$config['app']['vod_search_optimise'] : []);
             $config['app']['vod_search_optimise_cache_minutes'] = (int)$config['app']['vod_search_optimise_cache_minutes'];
 
@@ -171,7 +191,7 @@ class System extends Base
             $permUrlRaw = isset($config['site']['site_publish_permanent_url']) ? (string) $config['site']['site_publish_permanent_url'] : '';
             $permUrl = PublishPage::sanitizeUrl($permUrlRaw);
             if (mb_strlen($permText, 'UTF-8') > 200) {
-                return $this->error(lang('admin/system/config/site_publish_err_perm_text_len'));
+                return $this->ajaxErrorWithFreshToken(lang('admin/system/config/site_publish_err_perm_text_len'));
             }
             $config['site']['site_publish_permanent_text'] = $permText;
             $config['site']['site_publish_permanent_url'] = $permUrl;
@@ -192,16 +212,16 @@ class System extends Base
                 $gRaw = (string) $config['site']['site_publish_groups'];
             }
             if (strlen($gRaw) > 120000) {
-                return $this->error(lang('admin/system/config/site_publish_err_groups_len'));
+                return $this->ajaxErrorWithFreshToken(lang('admin/system/config/site_publish_err_groups_len'));
             }
             $groupsParsed = PublishPage::parseGroups($gRaw);
             if ($gRaw !== '' && $gRaw !== '[]' && json_decode($gRaw, true) !== null && count($groupsParsed) < 1) {
-                return $this->error(lang('admin/system/config/site_publish_err_groups_json'));
+                return $this->ajaxErrorWithFreshToken(lang('admin/system/config/site_publish_err_groups_json'));
             }
             $config['site']['site_publish_groups'] = $gRaw;
             $hasGroups = count($groupsParsed) > 0;
             if ($config['site']['site_publish_status'] === '1' && !$hasGroups) {
-                return $this->error(lang('admin/system/config/site_publish_err_links_or_groups'));
+                return $this->ajaxErrorWithFreshToken(lang('admin/system/config/site_publish_err_links_or_groups'));
             }
             $config_new['site'] = $config['site'];
             $config_new['app'] = $config['app'];
@@ -214,7 +234,11 @@ class System extends Base
             if(strpos($tj,'document.w') ===false){
                 $tj = 'document.write(\'' . str_replace("'","\'",$tj) . '\')';
             }
-            $res = @fwrite(fopen('./static/js/tj.js', 'wb'), $tj);
+            // file_put_contents 返回写入字节数；fwrite 写入 0 字节返回整数 0，用 === false 判断会漏判
+            $tjRes = @file_put_contents('./static/js/tj.js', $tj, LOCK_EX);
+            if ($tjRes === false || $tjRes !== strlen($tj)) {
+                return $this->ajaxErrorWithFreshToken(lang('save_err'));
+            }
 
             $res = mac_arr2file(APP_PATH . 'extra/maccms.php', $config_new);
             if ($res === false) {
@@ -224,10 +248,15 @@ class System extends Base
         }
 
 
-        $templates = glob('./template' . '/*', GLOB_ONLYDIR);
+        // 下劃線開頭的目錄不是主題（如 template/_shared/ 存放跨主題共用的行為 JS
+        // 與 Twig 元件庫），不能出現在主題選擇器裡
+        $templates = array_values(array_filter(glob('./template' . '/*', GLOB_ONLYDIR), function ($d) {
+            return substr(basename($d), 0, 1) !== '_';
+        }));
         foreach ($templates as $k => &$v) {
             $v = str_replace('./template/', '', $v);
         }
+        unset($v);
         $this->assign('templates', $templates);
 
         $langs = glob('./application/lang/*.php');
@@ -384,7 +413,7 @@ class System extends Base
 
             $res = mac_arr2file(APP_PATH . 'route.php', $route);
             if ($res === false) {
-                return $this->error(lang('write_err_route'));
+                return $this->ajaxErrorWithFreshToken(lang('write_err_route'));
             }
 
             //写扩展配置
@@ -392,7 +421,7 @@ class System extends Base
             $config_new = array_merge($config_old, $config_new);
             $res = mac_arr2file(APP_PATH . 'extra/maccms.php', $config_new);
             if ($res === false) {
-                return $this->error(lang('write_err_config'));
+                return $this->ajaxErrorWithFreshToken(lang('write_err_config'));
             }
             return $this->success(lang('save_ok'));
         }
@@ -913,7 +942,7 @@ class System extends Base
             unset($config['__token__']);
 
             if($config['interface']['status']==1 && strlen($config['interface']['pass']) < 16){
-                return $this->error(lang('admin/system/configinterface/pass_check'));
+                return $this->ajaxErrorWithFreshToken(lang('admin/system/configinterface/pass_check'));
             }
 
             $config_new['interface'] = $config['interface'];
@@ -1079,25 +1108,35 @@ class System extends Base
             }
             unset($config['__token__']);
 
-            $config_new['play'] = $config['play'];
-            $config_old = config('maccms');
-            $config_new = array_merge($config_old, $config_new);
-
-            $res = mac_arr2file(APP_PATH . 'extra/maccms.php', $config_new);
-            if ($res === false) {
-                return $this->ajaxErrorWithFreshToken(lang('save_err'));
+            if (!isset($config['play']) || !is_array($config['play']) || empty($config['play'])) {
+                return $this->ajaxErrorWithFreshToken(lang('param_err'));
             }
 
-            $path = './static/js/playerconfig.js';
-            if (!file_exists($path)) {
+            // 播放器参数的唯一数据源是 static/js/playerconfig.js（前台经 All.php 直接引用该文件），
+            // extra/maccms.php 的 play 节点从未被读取，故不再写入，避免两套配置并存。
+            $target = './static/js/playerconfig.js';
+            $path = $target;
+            if (!is_file($path)) {
                 $path .= '.bak';
             }
-            $fc = @file_get_contents($path);
+            $fc = is_file($path) ? @file_get_contents($path) : false;
+            if ($fc === false || $fc === '') {
+                return $this->ajaxErrorWithFreshToken(lang('save_err'));
+            }
             $jsb = mac_get_body($fc, '//参数开始', '//参数结束');
+            if ($jsb === false || trim((string)$jsb) === '') {
+                return $this->ajaxErrorWithFreshToken(lang('save_err'));
+            }
             $content = 'MacPlayerConfig=' . json_encode($config['play']) . ';';
-            $fc = str_replace($jsb, "\r\n" . $content . "\r\n", $fc);
-            $res = @fwrite(fopen('./static/js/playerconfig.js', 'wb'), $fc);
-            if ($res === false) {
+            $fc_new = str_replace($jsb, "\r\n" . $content . "\r\n", $fc);
+            // 替换后必须真的包含新参数，否则说明标记异常，不能当成成功
+            if (strpos($fc_new, $content) === false) {
+                return $this->ajaxErrorWithFreshToken(lang('save_err'));
+            }
+            // file_put_contents 返回实际写入字节数：只有与内容长度完全一致才算写入成功。
+            // 旧写法用 fwrite + fopen，写入 0 字节时返回整数 0，用 === false 判断会漏判成"保存成功"。
+            $res = @file_put_contents($target, $fc_new, LOCK_EX);
+            if ($res === false || $res !== strlen($fc_new)) {
                 return $this->ajaxErrorWithFreshToken(lang('save_err'));
             }
             return $this->success(lang('save_ok'));
@@ -2011,10 +2050,4 @@ class System extends Base
     /**
      * AJAX form error with a new __token__ (ThinkPHP deletes the session token when validation runs).
      */
-    private function ajaxErrorWithFreshToken($msg)
-    {
-        $t = \think\Request::instance()->token('__token__');
-        return $this->error($msg, null, ['__token__' => $t]);
-    }
-
 }

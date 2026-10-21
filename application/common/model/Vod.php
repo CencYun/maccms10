@@ -75,6 +75,8 @@ class Vod extends Base {
         //用户组
         $group_list = model('Group')->getCache('group_list');
 
+        // 集数类备注（全N集/更新至N集）按实际播放地址集数对齐
+        mac_vod_rows_episode_remarks($list);
         $vip_exclusive = mac_get_vip_exclusive_type_ids();
         foreach($list as $k=>$v){
             $list[$k]['type_is_vip_exclusive'] = in_array($v['type_id'] ?? 0, $vip_exclusive) ? 1 : 0;
@@ -445,6 +447,7 @@ class Vod extends Base {
             $where['vod_isend'] = $isend;
         }
 
+        $wd_sql = '';
         $vod_search = model('VodSearch');
         // Meilisearch 开启时不再走 mac_vod_search 前台 ID 缓存，避免与 Meili 双写、且 _string 会阻断 applyForVod；采集侧仍可用 VodSearch::isCollectEnabled()
         $vod_search_enabled = $vod_search->isFrontendEnabled() && !MeilisearchService::enabled();
@@ -457,10 +460,11 @@ class Vod extends Base {
                 if(!empty($GLOBALS['config']['app']['search_vod_rule'])){
                     $role .= '|'.$GLOBALS['config']['app']['search_vod_rule'];
                 }
-                $where[$role] = ['like', '%' . $wd . '%'];
-                if (count($search_id_list_tmp = $vod_search->getResultIdList($wd, $role)) <= $max_id_count) {
+                // 缓存按 VodSearch::wdSql 规则计算（短英文词不在拼音/副标题里乱匹配）；超出 IN 上限时同规则直接查
+                if (count($search_id_list_tmp = $vod_search->getResultIdList($wd, VodSearch::WD_FIELD_PREFIX . $role)) <= $max_id_count) {
                     $search_id_list = array_merge($search_id_list, $search_id_list_tmp);
-                    unset($where[$role]);
+                } else {
+                    $wd_sql = VodSearch::wdSql($role, $wd);
                 }
             }
             if(!empty($name)) {
@@ -509,7 +513,13 @@ class Vod extends Base {
                 if(!empty($GLOBALS['config']['app']['search_vod_rule'])){
                     $role .= '|'.$GLOBALS['config']['app']['search_vod_rule'];
                 }
-                $where[$role] = ['like', '%' . $wd . '%'];
+                if (MeilisearchService::enabled()) {
+                    // Meilisearch 桥接按 vod_name|... 键识别并替换为全文检索，保持原样；桥接失败时下面换回 wdSql
+                    $where[$role] = ['like', '%' . $wd . '%'];
+                    $meili_wd_role = $role;
+                } else {
+                    $wd_sql = VodSearch::wdSql($role, $wd);
+                }
             }
             if(!empty($name)) {
                 $where['vod_name'] = ['like',mac_like_arr($name),'OR'];
@@ -526,6 +536,9 @@ class Vod extends Base {
             if(!empty($director)) {
                 $where['vod_director'] = ['like',mac_like_arr($director),'OR'];
             }
+        }
+        if ($wd_sql !== '') {
+            $where['_string'] = empty($where['_string']) ? $wd_sql : '(' . $where['_string'] . ') AND ' . $wd_sql;
         }
         if(in_array($plot,['0','1'])){
             $where['vod_plot'] = $plot;
@@ -546,7 +559,7 @@ class Vod extends Base {
         // 大表下 ORDER BY RAND() 有性能代价，属语义正确性与性能的取舍
         $use_rand = ($by == 'rnd');
         if (!$use_rand) {
-            if (!in_array($by, ['id', 'time', 'time_add', 'score', 'hits', 'hits_day', 'hits_week', 'hits_month', 'up', 'down', 'level', 'rnd'])) {
+            if (!in_array($by, ['id', 'time', 'time_add', 'score', 'hits', 'hits_day', 'hits_week', 'hits_month', 'duration', 'up', 'down', 'level', 'rnd'])) {
                 $by = 'time';
             }
         }
@@ -586,6 +599,10 @@ class Vod extends Base {
                 }
             }
             $order = ['[rand]' => '[rand]'];
+        } else if ($by == 'duration') {
+            // vod_duration 是自由文本（如 "57:00"/"1:35:20"/"95"），直接按字符串排序会导致顺序错乱，
+            // 这里统一换算成秒数再排序
+            $order = Db::raw($this->buildDurationOrderExpr($order));
         } else {
             $order = 'vod_' . $by . ' ' . $order;
         }
@@ -608,6 +625,12 @@ class Vod extends Base {
                 $where = $meili['where'];
                 $order = $meili['order'];
             }
+        }
+        // Meili 已开启但不可用（服务没起 / 超时）：别退回各字段 %wd% 的老匹配，与关闭 Meili 时同规则
+        if ($meili === null && !empty($meili_wd_role) && isset($where[$meili_wd_role])) {
+            unset($where[$meili_wd_role]);
+            $wd_sql = VodSearch::wdSql($meili_wd_role, $wd);
+            $where['_string'] = empty($where['_string']) ? $wd_sql : '(' . $where['_string'] . ') AND ' . $wd_sql;
         }
         $where_cache = $where;
         if($use_rand){
@@ -632,13 +655,40 @@ class Vod extends Base {
                 $res = $this->listData($where, $order, $page, $num, $start,$field,1, $totalshow);
             }
             if($GLOBALS['config']['app']['cache_core']==1 && !$use_rand) {
-                Cache::set($cach_name, $res, $cachetime);
+                // 打上表名标签，写路径才能定点作废这一族列表缓存（见 Base::clearListCache()）
+                Cache::tag($this->name)->set($cach_name, $res, $cachetime);
             }
         }
+        // 缓存里的 type/type_1 是建缓存时的快照，按当前分类缓存重挂（见 Base::refreshTypeRelation()）
+        $res = $this->refreshListTypeRelation($res);
         $res['pageurl'] = $pageurl;
         $res['half'] = $half;
 
         return $res;
+    }
+
+    /**
+     * 构造按 vod_duration 排序的 SQL 表达式：先把常见格式（H:MM:SS、MM:SS、纯数字分钟）统一换算成秒数再比较，
+     * 避免直接对文本做字典序排序导致的长短错位
+     */
+    private function buildDurationOrderExpr($order)
+    {
+        $order = in_array($order, ['asc', 'desc']) ? $order : 'desc';
+        // 无法识别的 vod_duration 格式（如"未知"、"1h35m"）归为 NULL，
+        // 而不是静默 CAST 成 0，避免脏数据聚集到排序的一端；NULL 统一排最后
+        $expr = "(CASE
+            WHEN vod_duration REGEXP '^[0-9]{1,2}:[0-9]{1,2}:[0-9]{1,2}$' THEN
+                CAST(SUBSTRING_INDEX(vod_duration,':',1) AS UNSIGNED) * 3600
+                + CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(vod_duration,':',2),':',-1) AS UNSIGNED) * 60
+                + CAST(SUBSTRING_INDEX(vod_duration,':',-1) AS UNSIGNED)
+            WHEN vod_duration REGEXP '^[0-9]{1,3}:[0-9]{1,2}$' THEN
+                CAST(SUBSTRING_INDEX(vod_duration,':',1) AS UNSIGNED) * 60
+                + CAST(SUBSTRING_INDEX(vod_duration,':',-1) AS UNSIGNED)
+            WHEN vod_duration REGEXP '^[0-9]+$' THEN
+                CAST(vod_duration AS UNSIGNED) * 60
+            ELSE NULL
+        END)";
+        return "{$expr} IS NULL, {$expr} {$order}";
     }
 
     public function infoData($where,$field='*',$cache=0)
@@ -671,6 +721,9 @@ class Vod extends Base {
             if (!empty($info['vod_play_from'])) {
                 $info['vod_play_list'] = mac_play_list($info['vod_play_from'], $info['vod_play_url'], $info['vod_play_server'], $info['vod_play_note'], 'play');
             }
+            if (isset($info['vod_remarks'], $info['vod_play_url'])) {
+                $info['vod_remarks'] = mac_vod_episode_remarks($info['vod_remarks'], $info['vod_play_url']);
+            }
             if (!empty($info['vod_down_from'])) {
                 $info['vod_down_list'] = mac_play_list($info['vod_down_from'], $info['vod_down_url'], $info['vod_down_server'], $info['vod_down_note'], 'down');
             }
@@ -699,6 +752,23 @@ class Vod extends Base {
                 Cache::set($key, $info);
             }
         }
+        $info = $this->refreshTypeRelation($info);
+        $info = mac_content_lang_overlay('vod', $info);
+        // 线路/播放器/下载器配置的译文按当前语言覆盖。必须放在核心缓存读取「之后」，
+        // 否则先建缓存的语言会把线路译文烘进不区分语言的 vod_detail 缓存里串给其它语言。
+        foreach (['vod_play_list', 'vod_down_list'] as $vlk) {
+            if (empty($info[$vlk]) || !is_array($info[$vlk])) {
+                continue;
+            }
+            foreach ($info[$vlk] as $vgk => $vgroup) {
+                if (!empty($vgroup['player_info']) && is_array($vgroup['player_info'])) {
+                    $info[$vlk][$vgk]['player_info'] = mac_config_lang_overlay($vgroup['player_info'], ['show', 'des', 'tip']);
+                }
+                if (!empty($vgroup['server_info']) && is_array($vgroup['server_info'])) {
+                    $info[$vlk][$vgk]['server_info'] = mac_config_lang_overlay($vgroup['server_info'], ['show', 'tip']);
+                }
+            }
+        }
         return ['code'=>1,'msg'=>lang('obtain_ok'),'info'=>$info];
     }
 
@@ -708,12 +778,7 @@ class Vod extends Base {
         if(!$validate->check($data)){
             return ['code'=>1001,'msg'=>lang('param_err').'：'.$validate->getError() ];
         }
-        $key = 'vod_detail_'.$data['vod_id'];
-        Cache::rm($key);
-        $key = 'vod_detail_'.$data['vod_en'];
-        Cache::rm($key);
-        $key = 'vod_detail_'.$data['vod_id'].'_'.$data['vod_en'];
-        Cache::rm($key);
+        $this->clearDetailCache($data['vod_id'], $data['vod_en']);
 
         $type_list = model('Type')->getCache('type_list');
         $type_info = $type_list[$data['type_id']];
@@ -831,8 +896,9 @@ class Vod extends Base {
             $ixVodId = intval($this->getLastInsID());
         }
         MeilisearchSync::afterVodSave($ixVodId);
+        $this->clearListCache();
 
-        return ['code'=>1,'msg'=>lang('save_ok')];
+        return ['code'=>1,'msg'=>lang('save_ok'),'vod_id'=>$ixVodId];
     }
 
     public function savePlot($data)
@@ -841,12 +907,7 @@ class Vod extends Base {
         if(!$validate->check($data)){
             return ['code'=>1001,'msg'=>lang('param_err').'：'.$validate->getError() ];
         }
-        $key = 'vod_detail_'.$data['vod_id'];
-        Cache::rm($key);
-        $key = 'vod_detail_'.$data['vod_en'];
-        Cache::rm($key);
-        $key = 'vod_detail_'.$data['vod_id'].'_'.$data['vod_en'];
-        Cache::rm($key);
+        $this->clearDetailCache($data['vod_id'], $data['vod_en']);
 
         if(!empty($data['vod_plot_name'])) {
             $data['vod_plot'] = 1;
@@ -887,20 +948,13 @@ class Vod extends Base {
         }
         $where = $this->mergeRecycleWhere($where);
         $path = './';
+        $delIds = [];
         foreach($list['list'] as $k=>$v){
+            $delIds[] = intval($v['vod_id']);
             MeilisearchSync::deleteVod(intval($v['vod_id']));
-            $pic = $path.$v['vod_pic'];
-            if(file_exists($pic) && (substr($pic,0,8) == "./upload") || count( explode("./",$pic) ) ==1){
-                unlink($pic);
-            }
-            $pic = $path.$v['vod_pic_thumb'];
-            if(file_exists($pic) && (substr($pic,0,8) == "./upload") || count( explode("./",$pic) ) ==1){
-                unlink($pic);
-            }
-            $pic = $path.$v['vod_pic_slide'];
-            if(file_exists($pic) && (substr($pic,0,8) == "./upload") || count( explode("./",$pic) ) ==1){
-                unlink($pic);
-            }
+            mac_safe_unlink_upload($v['vod_pic']);
+            mac_safe_unlink_upload($v['vod_pic_thumb']);
+            mac_safe_unlink_upload($v['vod_pic_slide']);
             if($GLOBALS['config']['view']['vod_detail'] ==2 ){
                 $lnk = mac_url_vod_detail($v);
                 $lnk = reset_html_filename($lnk);
@@ -913,6 +967,8 @@ class Vod extends Base {
         if($res===false){
             return ['code'=>1002,'msg'=>lang('del_err').'：'.$this->getError() ];
         }
+        \app\common\model\ContentLang::deleteByContent('vod', $delIds);
+        $this->clearListCache();
         return ['code'=>1,'msg'=>lang('del_ok')];
     }
 
@@ -930,17 +986,16 @@ class Vod extends Base {
         $list = $this->field('vod_id,vod_name,vod_en')->where($where)->select();
         $syncSearch = isset($update['vod_status']);
         foreach($list as $k=>$v){
-            $key = 'vod_detail_'.$v['vod_id'];
-            Cache::rm($key);
-            $key = 'vod_detail_'.$v['vod_en'];
-            Cache::rm($key);
+            $this->clearDetailCache($v['vod_id'], $v['vod_en']);
             if ($syncSearch) {
                 MeilisearchSync::afterVodSave((int)$v['vod_id']);
             }
         }
+        $this->clearListCache();
 
         return ['code'=>1,'msg'=>lang('set_ok')];
     }
+
 
     public function updateToday($flag='vod')
     {

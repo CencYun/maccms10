@@ -143,6 +143,9 @@ CREATE TABLE `mac_art` (
   `art_time_hits` int(10) unsigned NOT NULL DEFAULT '0' ,
   `art_time_make` int(10) unsigned NOT NULL DEFAULT '0' ,
   `art_recycle_time` int(10) unsigned NOT NULL DEFAULT '0' ,
+  `art_check_state` tinyint(1) unsigned NOT NULL DEFAULT '0' COMMENT '资源检测 0未检测 1正常 2失败 3已自动停用',
+  `art_check_reason` varchar(255) NOT NULL DEFAULT '' COMMENT '资源检测原因',
+  `art_check_time` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '资源检测时间',
   `art_score` decimal(3,1) unsigned NOT NULL DEFAULT '0.0' ,
   `art_score_all` mediumint(8) unsigned NOT NULL DEFAULT '0' ,
   `art_score_num` mediumint(8) unsigned NOT NULL DEFAULT '0' ,
@@ -170,10 +173,12 @@ CREATE TABLE `mac_art` (
   KEY `art_hits_month` (`art_hits_month`) USING BTREE,
   KEY `art_time_add` (`art_time_add`) USING BTREE,
   KEY `art_time_make` (`art_time_make`) USING BTREE,
+  KEY `art_check_state` (`art_check_state`),
   KEY `art_lock` (`art_lock`),
   KEY `art_score` (`art_score`),
   KEY `art_score_all` (`art_score_all`),
-  KEY `art_score_num` (`art_score_num`)
+  KEY `art_score_num` (`art_score_num`),
+  KEY `idx_status_time_add` (`art_status`,`art_time_add`)
 ) ENGINE=MyISAM AUTO_INCREMENT=1 DEFAULT CHARSET=utf8 ;
 
 -- ----------------------------
@@ -235,6 +240,9 @@ CREATE TABLE `mac_manga` (
   `manga_is_vip` tinyint(1) unsigned NOT NULL DEFAULT '0' COMMENT '是否VIP(0=否,1=是)',
   `manga_copyright_info` varchar(255) NOT NULL DEFAULT '' COMMENT '版权信息',
   `manga_recycle_time` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '回收站时间戳，0=正常',
+  `manga_check_state` tinyint(1) unsigned NOT NULL DEFAULT '0' COMMENT '资源检测 0未检测 1正常 2失败 3已自动停用',
+  `manga_check_reason` varchar(255) NOT NULL DEFAULT '' COMMENT '资源检测原因',
+  `manga_check_time` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '资源检测时间',
   PRIMARY KEY (`manga_id`),
   KEY `type_id` (`type_id`) USING BTREE,
   KEY `type_id_1` (`type_id_1`) USING BTREE,
@@ -252,10 +260,12 @@ CREATE TABLE `mac_manga` (
   KEY `manga_hits_month` (`manga_hits_month`) USING BTREE,
   KEY `manga_time_add` (`manga_time_add`) USING BTREE,
   KEY `manga_time_make` (`manga_time_make`) USING BTREE,
+  KEY `manga_check_state` (`manga_check_state`),
   KEY `manga_lock` (`manga_lock`),
   KEY `manga_score` (`manga_score`),
   KEY `manga_score_all` (`manga_score_all`),
-  KEY `manga_score_num` (`manga_score_num`)
+  KEY `manga_score_num` (`manga_score_num`),
+  KEY `idx_status_time_add` (`manga_status`,`manga_time_add`)
 ) ENGINE=MyISAM AUTO_INCREMENT=1 DEFAULT CHARSET=utf8 COMMENT='漫画表';
 
 -- ----------------------------
@@ -1141,6 +1151,9 @@ CREATE TABLE `mac_vod` (
   `vod_time_hits` int(10) unsigned NOT NULL DEFAULT '0' ,
   `vod_time_make` int(10) unsigned NOT NULL DEFAULT '0' ,
   `vod_recycle_time` int(10) unsigned NOT NULL DEFAULT '0' ,
+  `vod_check_state` tinyint(1) unsigned NOT NULL DEFAULT '0' COMMENT '资源检测 0未检测 1正常 2失败 3已自动停用',
+  `vod_check_reason` varchar(255) NOT NULL DEFAULT '' COMMENT '资源检测原因',
+  `vod_check_time` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '资源检测时间',
   `vod_trysee` smallint(6) unsigned NOT NULL DEFAULT '0' ,
   `vod_douban_id` int(10) unsigned NOT NULL DEFAULT '0' ,
   `vod_douban_score` decimal(3,1) unsigned NOT NULL DEFAULT '0.0' ,
@@ -1193,6 +1206,7 @@ CREATE TABLE `mac_vod` (
   KEY `vod_time` (`vod_time`) USING BTREE,
   KEY `vod_publish_time` (`vod_publish_time`) USING BTREE,
   KEY `vod_time_make` (`vod_time_make`) USING BTREE,
+  KEY `vod_check_state` (`vod_check_state`),
   KEY `vod_actor` (`vod_actor`) USING BTREE,
   KEY `vod_director` (`vod_director`) USING BTREE,
   KEY `vod_score_all` (`vod_score_all`) USING BTREE,
@@ -1201,7 +1215,8 @@ CREATE TABLE `mac_vod` (
   KEY `vod_score` (`vod_score`) USING BTREE,
   KEY `vod_version` (`vod_version`),
   KEY `vod_state` (`vod_state`),
-  KEY `vod_isend` (`vod_isend`)
+  KEY `vod_isend` (`vod_isend`),
+  KEY `idx_status_time_add` (`vod_status`,`vod_time_add`)
 ) ENGINE=MyISAM AUTO_INCREMENT=1 DEFAULT CHARSET=utf8 ;
 
 -- ----------------------------
@@ -1525,7 +1540,8 @@ CREATE TABLE `mac_analytics_content_day` (
   `updated_at` int(10) unsigned NOT NULL DEFAULT '0',
   PRIMARY KEY (`stat_date`,`mid`,`content_id`),
   KEY `idx_date_type` (`stat_date`,`type_id`),
-  KEY `idx_hot` (`stat_date`,`view_pv`)
+  KEY `idx_hot` (`stat_date`,`view_pv`),
+  KEY `idx_mid_content_date` (`mid`,`content_id`,`stat_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='运营统计-内容按日效果';
 
 
@@ -2238,3 +2254,23 @@ INSERT INTO `mac_monitor_alert_rule` (`rule_name`,`rule_status`,`rule_source`,`r
 ('PV 异常暴涨',0,'analytics','analytics.pv','last',60,'gt',0.0000,0,1,120,60,'notify','zscore','{"k":4,"baseline_days":14,"min_sample":7,"min_abs":50}'),
 ('UV 异常暴跌',0,'analytics','analytics.uv','last',60,'lt',0.0000,0,2,120,60,'notify','zscore','{"k":3,"baseline_days":14,"min_sample":7,"min_abs":30}'),
 ('跳出率飙升',0,'analytics','analytics.bounce_rate','last',1440,'gt',0.0000,0,2,720,720,'notify','zscore','{"k":3,"baseline_days":14,"min_sample":7,"min_abs":10}');
+
+-- -----------------------------------------------------------------------------
+-- Table structure for mac_content_lang
+-- 内容级多语言：每个 (content_type, content_id, lang_code) 一行，
+-- 可翻译字段整体存成 JSON，缺失时由调用方回退到默认语言原文，
+-- 新增语言不需要改表结构。
+-- -----------------------------------------------------------------------------
+DROP TABLE IF EXISTS `mac_content_lang`;
+CREATE TABLE `mac_content_lang` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `content_type` varchar(20) NOT NULL DEFAULT '' COMMENT 'vod|art',
+  `content_id` int(10) unsigned NOT NULL DEFAULT '0',
+  `lang_code` varchar(10) NOT NULL DEFAULT '' COMMENT '如 en-us、ja-jp',
+  `data` mediumtext COMMENT 'JSON: {vod_name, vod_sub, vod_blurb, vod_content, ...}',
+  `status` tinyint(1) unsigned NOT NULL DEFAULT '0' COMMENT '0=机翻未校对 1=已人工校对',
+  `source` varchar(10) NOT NULL DEFAULT 'manual' COMMENT 'manual|mt',
+  `update_time` int(10) unsigned NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_item_lang` (`content_type`,`content_id`,`lang_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

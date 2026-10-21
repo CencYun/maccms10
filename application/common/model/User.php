@@ -39,12 +39,21 @@ class User extends Base
     /**
      * 公开 API 用户详情允许返回的字段（白名单）。
      *
+     * 安全（#1363）：公开 / 未认证接口只能返回“非敏感的公开资料”。
+     * 因此本白名单不得包含手机号、邮箱、QQ、积分/经验/余额、邀请码等 PII，
+     * 也不得包含 group_id（会员/权限组）、user_status（账号状态）等账户元数据，
+     * 否则未认证用户即可通过 /api.php/user/get_detail?id= 枚举并窃取会员信息。
+     * 需要完整字段的场景（后台、用户查看自己的资料）请走带鉴权的接口。
+     * 注：user_status 仅作为查询条件（仅取 status=1 的正常账号），不作为输出字段；
+     *     user_portrait 由控制器动态追加，无需列入本白名单。
+     *
      * @return string
      */
     public function publicApiDetailFields()
     {
-        return 'user_id,user_name,user_nick_name,user_phone,user_qq,user_email,group_id,user_points,user_exp,user_integral,user_invite_code,user_invite_count,user_reg_time,user_status';
+        return 'user_id,user_name,user_nick_name,user_reg_time';
     }
+
 
     /**
      * 剥离会话/凭证相关字段，避免公开接口泄露后可伪造 user_check / JWT。
@@ -203,7 +212,6 @@ class User extends Base
         $data['user_pwd'] = htmlspecialchars(urldecode(trim(isset($param['user_pwd']) ? $param['user_pwd'] : '')));
         $data['user_pwd2'] = htmlspecialchars(urldecode(trim(isset($param['user_pwd2']) ? $param['user_pwd2'] : '')));
         $data['verify'] = isset($param['verify']) ? $param['verify'] : '';
-        $uid = isset($param['uid']) ? $param['uid'] : 0;
         $is_from_3rdparty = !empty($param['user_openid_qq']) || !empty($param['user_openid_weixin']);
 
 
@@ -317,42 +325,17 @@ class User extends Base
         $this->where('user_id', $nid)->update(['user_invite_code' => $invite_code]);
         
         $invite_code_param = trim($param['invite_code'] ?? '');
-        $uid = intval($uid);
-        
+        if (empty($invite_code_param) && !empty(cookie('invite_code'))) {
+            $invite_code_param = trim(cookie('invite_code'));
+        }
+
+        // 邀请关系只能通过校验过的邀请码解析推荐人，禁止直接信任请求/Cookie 中的原始 uid
+        $uid = 0;
         if (!empty($invite_code_param)) {
             $uid = $this->getUserIdByInviteCode($invite_code_param);
         }
-        
-        if($uid > 0) {
-            $where2 = [];
-            $where2['user_id'] = $uid;
-            $invite = $this->where($where2)->find();
-            if ($invite) {
-                $where=[];
-                $where['user_id'] = $nid;
-                $update=[];
-                $update['user_pid'] = $invite['user_id'];
-                $update['user_pid_2'] = $invite['user_pid'];
-                $update['user_pid_3'] = $invite['user_pid_2'];
-                $r1 = $this->where($where)->update($update);
-                $r2 = false;
-                $config['user']['invite_reg_num'] = intval($config['user']['invite_reg_num']);
 
-                if($config['user']['invite_reg_points']>0){
-                    $r2 = $this->where($where2)->setInc('user_points', $config['user']['invite_reg_points']);
-                }
-
-                if($r2!==false) {
-                    //积分日志
-                    $data = [];
-                    $data['user_id'] = $uid;
-                    $data['plog_type'] = 2;
-                    $data['plog_points'] = $config['user']['invite_reg_points'];
-                    model('Plog')->saveData($data);
-                }
-                $this->addInviteCount($uid);
-            }
-        }
+        $this->bindInviter($nid, $uid, $config['user']);
         return ['code' => 1, 'msg' => lang('model/user/reg_ok')];
     }
 
@@ -436,19 +419,53 @@ class User extends Base
             }
         }
 
+        // 资料自助更新：不可改 user_name，也不走 saveData 的 edit 场景。
+        // edit 场景含 user_name.min:6，会把已有短用户名（如 test）误杀成「名称最少不能低于6个字符」。
+        $uid = intval($GLOBALS['user']['user_id'] ?? 0);
+        if ($uid < 1) {
+            return ['code' => 1002, 'msg' => lang('model/user/not_login')];
+        }
+
         $data = [];
-        $data['user_id'] = $GLOBALS['user']['user_id'];
-        $data['user_name'] = $GLOBALS['user']['user_name'];
-        if(!empty($param['user_nick_name'])){
-            $data['user_nick_name'] = htmlspecialchars(urldecode(trim($param['user_nick_name'])));
+        // 改密表单不带资料字段：切勿用空值覆盖 QQ/密保
+        $hasProfile = isset($param['user_nick_name']) || isset($param['user_qq'])
+            || isset($param['user_question']) || isset($param['user_answer']);
+        if ($hasProfile) {
+            // 昵称与 QQ/密保一致用 isset：显式提交空串即视为「清空昵称」，
+            // 前台展示回落 user_name；isset 但为空的其它情况由各自语义决定
+            if (isset($param['user_nick_name'])) {
+                $nick = htmlspecialchars(urldecode(trim((string) $param['user_nick_name'])));
+                if ($nick !== '' && (mb_strlen($nick) < 2 || mb_strlen($nick) > 20)) {
+                    return ['code' => 1006, 'msg' => lang('model/user/nick_length_err')];
+                }
+                $data['user_nick_name'] = $nick;
+            }
+            if (isset($param['user_qq'])) {
+                $data['user_qq'] = htmlspecialchars(urldecode(trim($param['user_qq'])));
+            }
+            if (isset($param['user_question'])) {
+                $data['user_question'] = htmlspecialchars(urldecode(trim($param['user_question'])));
+            }
+            if (isset($param['user_answer'])) {
+                $data['user_answer'] = htmlspecialchars(urldecode(trim($param['user_answer'])));
+            }
         }
-        $data['user_qq'] = htmlspecialchars(urldecode(trim($param['user_qq'])));
-        $data['user_question'] = htmlspecialchars(urldecode(trim($param['user_question'])));
-        $data['user_answer'] = htmlspecialchars(urldecode(trim($param['user_answer'])));
         if ($wantPwdChange && $pwd2 !== '') {
-            $data['user_pwd'] = $pwd2;
+            if (strlen($pwd2) < 6) {
+                return ['code' => 1005, 'msg' => lang('model/user/pass_length_err')];
+            }
+            $data['user_pwd'] = mac_hash_password_for_column($pwd2, 'user', 'user_pwd');
         }
-        return $this->saveData($data);
+
+        if (empty($data)) {
+            return ['code' => 1001, 'msg' => lang('param_err')];
+        }
+
+        $res = $this->where(['user_id' => $uid])->update($data);
+        if ($res === false) {
+            return ['code' => 1003, 'msg' => '' . $this->getError()];
+        }
+        return ['code' => 1, 'msg' => lang('save_ok')];
     }
 
     /**
@@ -592,31 +609,16 @@ class User extends Base
         $invite_code = $this->generateUniqueInviteCode($nid);
         $this->where('user_id', $nid)->update(['user_invite_code' => $invite_code]);
 
-        // 处理邀请码
+        // 处理推广/邀请关系：只信任校验过的邀请码解析出的推荐人，禁止直接信任请求/Cookie 中的原始 uid
         $invite_code_param = trim($param['invite_code'] ?? '');
+        if (empty($invite_code_param) && !empty(cookie('invite_code'))) {
+            $invite_code_param = trim(cookie('invite_code'));
+        }
+        $uid = 0;
         if (!empty($invite_code_param)) {
             $uid = $this->getUserIdByInviteCode($invite_code_param);
-            if ($uid > 0) {
-                $invite = $this->where('user_id', $uid)->find();
-                if ($invite) {
-                    $upd = [];
-                    $upd['user_pid'] = $invite['user_id'];
-                    $upd['user_pid_2'] = $invite['user_pid'];
-                    $upd['user_pid_3'] = $invite['user_pid_2'];
-                    $this->where('user_id', $nid)->update($upd);
-
-                    if (!empty($config['user']['invite_reg_points']) && $config['user']['invite_reg_points'] > 0) {
-                        $this->where('user_id', $uid)->setInc('user_points', $config['user']['invite_reg_points']);
-                        $pdata = [];
-                        $pdata['user_id'] = $uid;
-                        $pdata['plog_type'] = 2;
-                        $pdata['plog_points'] = $config['user']['invite_reg_points'];
-                        model('Plog')->saveData($pdata);
-                    }
-                    $this->addInviteCount($uid);
-                }
-            }
         }
+        $this->bindInviter($nid, $uid, $config['user']);
 
         // 注册后自动登录
         $row = $this->where('user_id', $nid)->find();
@@ -1243,6 +1245,10 @@ class User extends Base
         if(!in_array($param['ac'],['email','phone']) || !isset($type_arr[$param['type']]) || empty($param['to'])  || empty($param['type'])){
             return ['code'=>9001,'msg'=>lang('param_err')];
         }
+        $channels = mac_msg_channels();
+        if (empty($channels[$param['ac']])) {
+            return ['code'=>9005,'msg'=>lang($param['ac'] == 'email' ? 'email_not_config' : 'sms_not_config')];
+        }
         // https://github.com/magicblack/maccms10/issues/792 邮箱增加黑白名单校验
         if ($param['ac'] == 'email' && in_array($param['type'], [1, 3])) {
             $result = UserValidate::validateEmail($param['to']);
@@ -1628,6 +1634,98 @@ class User extends Base
     }
 
     /**
+     * 根据用户ID获取其邀请码（用于 ?uid= 推广链接在注册页回显邀请码）
+     * @param int $user_id
+     * @return string
+     */
+    /**
+     * 新用户绑定推荐人 + 发放注册邀请积分（register / loginOrRegister 两条注册链路共用）。
+     * 绑定上级、积分入账、积分日志三步放在同一事务里，任一步失败整体回滚，不会出现
+     * 「上级已绑定但积分没到」或「积分到了没有日志」；邀请计数 / 阶梯奖励（addInviteCount →
+     * processInviteReward 自带事务）在提交后再执行，避免嵌套事务。
+     *
+     * @param int   $nid        新注册用户 ID
+     * @param int   $uid        经邀请码校验得到的推荐人 ID
+     * @param array $userConfig config('maccms.user')
+     * @return bool 是否完成绑定
+     */
+    private function bindInviter($nid, $uid, $userConfig)
+    {
+        $nid = intval($nid);
+        $uid = intval($uid);
+        if ($uid <= 0 || $uid == $nid) {
+            return false;
+        }
+        $points = intval(isset($userConfig['invite_reg_points']) ? $userConfig['invite_reg_points'] : 0);
+
+        \think\Db::startTrans();
+        try {
+            $invite = $this->where('user_id', $uid)->lock(true)->find();
+            if (!$invite) {
+                \think\Db::rollback();
+                return false;
+            }
+            $upd = [];
+            $upd['user_pid'] = $invite['user_id'];
+            $upd['user_pid_2'] = $invite['user_pid'];
+            $upd['user_pid_3'] = $invite['user_pid_2'];
+            // 只绑定尚无上级的新用户，重复调用不会改写已有关系、也不会重复发分
+            if (!$this->where('user_id', $nid)->where('user_pid', 0)->update($upd)) {
+                \think\Db::rollback();
+                return false;
+            }
+            if ($points > 0) {
+                if ($this->where('user_id', $uid)->setInc('user_points', $points) === false) {
+                    throw new \Exception('invite_reg_points setInc failed');
+                }
+                $plog = model('Plog')->saveData(['user_id' => $uid, 'plog_type' => 2, 'plog_points' => $points]);
+                if (!is_array($plog) || intval($plog['code']) !== 1) {
+                    throw new \Exception('invite_reg_points plog failed');
+                }
+            }
+            \think\Db::commit();
+        } catch (\Exception $e) {
+            \think\Db::rollback();
+            return false;
+        }
+        $this->addInviteCount($uid);
+        return true;
+    }
+
+    /**
+     * 注册请求的邀请码兜底：请求 / Cookie 都没有邀请码时，用推广链接 ?uid= 捕获的 uid（请求参数或 uid Cookie）
+     * 反查该用户的邀请码。注册链路仍只认邀请码（getUserIdByInviteCode 校验），uid 只是换成同一用户的邀请码，
+     * 与注册页 GET 回填邀请码的口径一致；不这样做时只带 uid 的推广链接在非经典主题下永远记不上推荐人。
+     */
+    public function fillInviteCodeFromUid(array $param)
+    {
+        if (trim((string)($param['invite_code'] ?? '')) !== '' || trim((string)cookie('invite_code')) !== '') {
+            return $param;
+        }
+        $refUid = intval($param['uid'] ?? 0);
+        if ($refUid <= 0) {
+            $refUid = intval(cookie('uid'));
+        }
+        if ($refUid > 0) {
+            $code = $this->getInviteCodeByUserId($refUid);
+            if ($code !== '') {
+                $param['invite_code'] = $code;
+            }
+        }
+        return $param;
+    }
+
+    public function getInviteCodeByUserId($user_id)
+    {
+        $user_id = intval($user_id);
+        if ($user_id <= 0) {
+            return '';
+        }
+        $info = $this->where('user_id', $user_id)->field('user_invite_code')->find();
+        return $info ? (string) $info['user_invite_code'] : '';
+    }
+
+    /**
      * 处理邀请奖励
      * 当被邀请人注册时，自动为邀请人发放奖励
      * @param int $user_id 邀请人用户ID
@@ -1638,12 +1736,12 @@ class User extends Base
         $config = $maccms_config['user'];
         
         if (empty($config['invite_reward_status'])) {
-            return;
+            return [];
         }
         
         $invite_reward = $config['invite_reward'];
         if (empty($invite_reward) || !is_array($invite_reward)) {
-            return;
+            return [];
         }
         
         $sorted_reward = [];
@@ -1665,7 +1763,7 @@ class User extends Base
             
             if (!$user_info) {
                 \think\Db::rollback();
-                return;
+                return [];
             }
             
             $invite_count = intval($user_info['user_invite_count']);
@@ -1673,6 +1771,7 @@ class User extends Base
             
             $update = [];
             $updated = false;
+            $granted = [];
             
             $current_end_time = ($user_info['user_end_time'] > time())
                 ? $user_info['user_end_time'] : time();
@@ -1703,11 +1802,14 @@ class User extends Base
                             $update['user_end_time'] = intval($current_end_time);
                             $updated = true;
                             
+                            // plog_type=15 邀请赠送会员（收入类，不计积分）；8 为积分消费，会被前台记为支出
+                            $group_list = model('Group')->getCache('group_list');
+                            $group_name = is_array($group_list) && isset($group_list[$group_id]) ? $group_list[$group_id]['group_name'] : 'VIP';
                             $data = [];
                             $data['user_id'] = $user_id;
-                            $data['plog_type'] = 8;
+                            $data['plog_type'] = 15;
                             $data['plog_points'] = 0;
-                            $data['plog_remarks'] = '邀请奖：邀请' . $invite_count . '人，获得VIP ' . ($long == 'day' ? '1天' : ($long == 'week' ? '1周' : ($long == 'month' ? '1个月' : '1年')));
+                            $data['plog_remarks'] = lang('model/user/invite_reward_vip_remark', [$count, $group_name, lang('admin/system/configuser/vip_' . $long)]);
                             model('Plog')->saveData($data);
                         }
                     }
@@ -1717,15 +1819,21 @@ class User extends Base
                         
                         $data = [];
                         $data['user_id'] = $user_id;
-                        $data['plog_type'] = 8;
+                        $data['plog_type'] = 14;
                         $data['plog_points'] = $points;
-                        $data['plog_remarks'] = '邀请奖励：邀请' . $invite_count . '人，获得' . $points . '积分';
+                        $data['plog_remarks'] = lang('model/user/invite_reward_points_remark', [$count, $points]);
                         model('Plog')->saveData($data);
                     }
                     
                     $update['user_invite_reward_level'] = $count;
                     $update['user_invite_reward_time'] = time();
                     $updated = true;
+                    $granted[] = [
+                        'count'    => $count,
+                        'group_id' => $group_id,
+                        'long'     => $long,
+                        'points'   => $points,
+                    ];
                 }
             }
             
@@ -1736,6 +1844,112 @@ class User extends Base
             \think\Db::commit();
         } catch (\Exception $e) {
             \think\Db::rollback();
+            return [];
+        }
+        return $granted;
+    }
+
+    /**
+     * 邀请奖励规则（前台邀请页展示用）
+     * @param int $user_id 当前用户，用于计算已达成阶梯
+     * @return array
+     */
+    public function getInviteRewardRules($user_id = 0)
+    {
+        $config = config('maccms.user');
+        $rules = [
+            'reg_points'     => max(0, intval($config['invite_reg_points'] ?? 0)),
+            'reward_status'  => empty($config['invite_reward_status']) ? 0 : 1,
+            'invite_count'   => 0,
+            'reward_level'   => 0,
+            'tiers'          => [],
+        ];
+        $user_id = intval($user_id);
+        if ($user_id > 0) {
+            $row = $this->where('user_id', $user_id)->field('user_invite_count,user_invite_reward_level')->find();
+            if ($row) {
+                $rules['invite_count'] = intval($row['user_invite_count']);
+                $rules['reward_level'] = intval($row['user_invite_reward_level']);
+            }
+        }
+        if (!$rules['reward_status'] || empty($config['invite_reward']) || !is_array($config['invite_reward'])) {
+            return $rules;
+        }
+        $group_list = model('Group')->getCache('group_list');
+        $group_list = is_array($group_list) ? $group_list : [];
+        $tiers = [];
+        foreach ($config['invite_reward'] as $count => $reward) {
+            $count = intval($count);
+            if ($count < 1 || !is_array($reward)) {
+                continue;
+            }
+            $group_id = intval($reward['group_id'] ?? 0);
+            $long = in_array($reward['long'] ?? '', ['day', 'week', 'month', 'year'], true) ? $reward['long'] : '';
+            $points = max(0, intval($reward['points'] ?? 0));
+            $has_vip = $group_id >= 2 && $long !== '';
+            if (!$has_vip && $points < 1) {
+                continue;
+            }
+            $tiers[$count] = [
+                'count'      => $count,
+                'group_id'   => $has_vip ? $group_id : 0,
+                'group_name' => $has_vip && isset($group_list[$group_id]) ? (string)$group_list[$group_id]['group_name'] : '',
+                'long'       => $has_vip ? $long : '',
+                'points'     => $points,
+                'achieved'   => $count <= $rules['reward_level'] ? 1 : 0,
+            ];
+        }
+        ksort($tiers);
+        $rules['tiers'] = array_values($tiers);
+        return $rules;
+    }
+
+    /**
+     * 邀请奖励到账站内通知（消息中心 活动 分类）。通知失败不影响注册主流程，仅写日志。
+     * @param int   $user_id     邀请人
+     * @param int   $reg_points  本次邀请注册奖励积分
+     * @param array $granted     processInviteReward 返回的本次达成阶梯
+     */
+    protected function sendInviteRewardNotify($user_id, $reg_points, $granted)
+    {
+        try {
+            $notify = model('Notify');
+            if ($reg_points > 0) {
+                $notify->send(
+                    $user_id,
+                    'activity',
+                    lang('notify/invite_reg_title'),
+                    lang('notify/invite_reg_content', [$reg_points]),
+                    '/user/invite'
+                );
+            }
+            if (empty($granted)) {
+                return;
+            }
+            $group_list = model('Group')->getCache('group_list');
+            $group_list = is_array($group_list) ? $group_list : [];
+            foreach ($granted as $tier) {
+                $parts = [];
+                if ($tier['group_id'] >= 2 && in_array($tier['long'], ['day', 'week', 'month', 'year'], true)) {
+                    $group_name = isset($group_list[$tier['group_id']]) ? $group_list[$tier['group_id']]['group_name'] : 'VIP';
+                    $parts[] = lang('notify/invite_reward_vip', [$group_name, lang('admin/system/configuser/vip_' . $tier['long'])]);
+                }
+                if ($tier['points'] > 0) {
+                    $parts[] = lang('notify/invite_reward_points', [$tier['points']]);
+                }
+                if (empty($parts)) {
+                    continue;
+                }
+                $notify->send(
+                    $user_id,
+                    'activity',
+                    lang('notify/invite_reward_title'),
+                    lang('notify/invite_reward_content', [$tier['count'], implode(lang('notify/invite_reward_sep'), $parts)]),
+                    '/user/invite'
+                );
+            }
+        } catch (\Exception $e) {
+            \think\Log::error('User::sendInviteRewardNotify uid=' . $user_id . ' err=' . $e->getMessage());
         }
     }
 
@@ -1747,7 +1961,11 @@ class User extends Base
     {
         $this->where('user_id', $user_id)->setInc('user_invite_count', 1);
         
-        $this->processInviteReward($user_id);
+        $granted = $this->processInviteReward($user_id);
+
+        $user_config = config('maccms.user');
+        $reg_points = intval($user_config['invite_reg_points'] ?? 0);
+        $this->sendInviteRewardNotify($user_id, $reg_points, is_array($granted) ? $granted : []);
     }
 
 }

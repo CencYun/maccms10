@@ -156,6 +156,7 @@ class User extends Base
                 'limit' => $limit,
                 'total' => intval($total),
                 'list'  => $invitees ?: [],
+                'rules' => model('User')->getInviteRewardRules($user_id),
             ],
         ]);
     }
@@ -178,19 +179,46 @@ class User extends Base
             ]);
         }
 
+        // 安全（#1363）：公开列表已下线「按 PII 反查（phone/email/qq）」「按 group_id 反推
+        // 会员/权限组」以及未记载的 id 精确查询（单条查询请走 get_detail）。这些参数即使传入
+        // 也不再生效；为避免旧客户端「被静默忽略、误以为过滤已生效却拿到完整公开名单，甚至把
+        // 首条误当成 id 指定的账号」，一律显式拒绝并返回参数错误（不再兼容旧调用）。
+        // 安全（#1363 复审 P1）：ThinkPHP 的 scene 校验只验「已列出的字段」，并不会拒绝未
+        // 列出的参数（如 id）；因此 id 必须在此显式拒绝，不能依赖 validate scene「漏列即拒」。
+        foreach (['id', 'phone', 'email', 'qq', 'group_id'] as $deprecated) {
+            // 安全（#1363 复审 P2）：用严格比较而非 (string) 转型。数组型输入（如 phone[]=x）
+            // 对数组做 (string) 会触发 "Array to string conversion" warning，污染 log / 错误
+            // 显示环境；改用 !== '' 后，非空数组同样会被判为「有传值」并拒绝，且不产生告警。
+            if (isset($param[$deprecated]) && $param[$deprecated] !== '') {
+                return json([
+                    'code' => 1001,
+                    'msg'  => lang('api/param_validate', [$deprecated]),
+                ]);
+            }
+        }
+
+        // 安全（#1363 复审 P1）：validate 的 max:50 规则对数组以 count() 计长，name[]=x /
+        // nickname[]=x 会「通过校验」，随后下方 strlen($param['name']) 在 PHP 8 会抛 TypeError
+        // （未认证者即可触发 500）。这里在进入 strlen 前显式拒绝非字符串输入，堵死该异常路径。
+        foreach (['name', 'nickname'] as $field) {
+            if (isset($param[$field]) && !is_string($param[$field])) {
+                return json([
+                    'code' => 1001,
+                    'msg'  => lang('api/param_validate', [$field]),
+                ]);
+            }
+        }
+
         $offset = isset($param['offset']) ? (int)$param['offset'] : 0;
         $limit = isset($param['limit']) ? (int)$param['limit'] : 20;
 
         // 查询条件组装
-        $where = [];
-
-        if (isset($param['id'])) {
-            $where['user_id'] = (int)$param['id'];
-        }
-
-        if (isset($param['group_id'])) {
-            $where['group_id'] = (int)$param['group_id'];
-        }
+        // 安全（#1363 复审 P1）：公开列表必须与公开详情（get_detail 的 user_status=1）保持
+        // 一致的可见性，只列出已启用账号。否则：不带 id 时会直接列出停用/待审核账号；带 id 时
+        // 又能与 get_detail 的「找不到」形成账号状态 oracle，泄露账号是否被停用/待审核。
+        // 安全（#1363 复审 P2）：单条查询统一走已安全化的 get_detail（带 user_status=1 与字段
+        // 白名单）。公开列表不再接受未记载、且未纳入 validate get_list scene 的 id 参数。
+        $where = ['user_status' => 1];
 
         if (isset($param['time_end']) && isset($param['time_start'])) {
             $where['user_reg_time'] = ['between', [(int)$param['time_start'], (int)$param['time_end']]];
@@ -200,17 +228,9 @@ class User extends Base
             $where['user_reg_time'] = ['>=', (int)$param['time_start']];
         }
 
-        if (isset($param['phone']) && strlen($param['phone']) > 0) {
-            $where['user_phone'] = ['like', '%' . $this->format_sql_string($param['phone']) . '%'];
-        }
-
-        if (isset($param['qq']) && strlen($param['qq']) > 0) {
-            $where['user_qq'] = ['like', '%' . $this->format_sql_string($param['qq']) . '%'];
-        }
-
-        if (isset($param['email']) && strlen($param['email']) > 0) {
-            $where['user_email'] = ['like', '%' . $this->format_sql_string($param['email']) . '%'];
-        }
+        // 安全（#1363）：公开 / 未认证接口不得提供按手机号 / 邮箱 / QQ 反查用户的能力，
+        // 否则攻击者可用 phone=138 之类前缀枚举命中会员的联系方式。这些 PII 过滤条件
+        // 一律不在公开接口生效；需要按联系方式检索请走后台带鉴权的用户管理。
 
         if (isset($param['nickname']) && strlen($param['nickname']) > 0) {
             $where['user_nick_name'] = ['like', '%' . $this->format_sql_string($param['nickname']) . '%'];
@@ -226,8 +246,14 @@ class User extends Base
         if ($total > 0) {
             // 排序
             $order = "user_reg_time DESC";
-            $field = 'user_id,user_name,user_nick_name,user_phone,user_reg_time';
-            if (strlen($param['orderby']) > 0) {
+            // 安全（#1363）：公开列表不得输出手机号等 PII，仅返回非敏感的公开资料字段。
+            $field = 'user_id,user_name,user_nick_name,user_reg_time';
+            // 安全：orderby 会被直接拼进 ORDER BY，必须用白名单限定，禁止任意字符串进入
+            // SQL（防 ORDER BY 注入）。安全（#1363）：public 端仅保留 reg_time 排序，
+            // 移除 login_time / points——两者会成为「近期活跃顺序 / 积分相对排序」的间接 oracle。
+            $orderby_allow = ['reg_time'];
+
+            if (isset($param['orderby']) && in_array($param['orderby'], $orderby_allow, true)) {
                 $order = 'user_' . $param['orderby'] . " DESC";
             }
             $list = model('User')->getListByCond($offset, $limit, $where, $order, $field, []);
@@ -292,7 +318,7 @@ class User extends Base
     /**
      * 登录/注册一体化
      * POST api.php/user/login_or_register
-     * 参数: user_name, user_pwd, [invite_code]
+     * 参数: user_name, user_pwd, [invite_code], [uid]（推广链接 ?uid= 携带的上级 ID，也可由 uid Cookie 兜底）
      *
      * - 帐号存在 → 校验密码 → 登录
      * - 帐号不存在 → 自动创建帐号 → 登录
@@ -311,6 +337,7 @@ class User extends Base
             return json(['code' => 1001, 'msg' => lang('api/user_name_pwd_empty')]);
         }
 
+        $param = model('User')->fillInviteCodeFromUid($param);
         $res = model('User')->loginOrRegister($param);
 
         if ($res['code'] > 1) {
@@ -563,6 +590,7 @@ class User extends Base
         if (!empty($param['type'])) $where['ulog_type'] = intval($param['type']);
         if (!empty($param['mid'])) $where['ulog_mid'] = intval($param['mid']);
         $order = 'ulog_time desc';
+        $where['_active_only'] = 1;
         $res = model('Ulog')->listData($where, $order, $page, $limit);
         return json(['code' => 1, 'msg' => lang('obtain_ok'), 'info' => $res]);
     }
@@ -631,8 +659,9 @@ class User extends Base
             ));
         }
         $data['ulog_points'] = 0;
-        // 视频播放/下载：按真实定价核算，禁止伪造 0 分购买记录
-        if ($data['ulog_mid'] == 1 && $data['ulog_type'] > 3) {
+        // 仅播放(4)/下载(5)按积分计费；新增的点赞(6)等类型没有对应的 vod_points_xxx 字段，
+        // 用 > 3 会把它们误路由进这段付费逻辑。
+        if ($data['ulog_mid'] == 1 && in_array($data['ulog_type'], [4, 5], true)) {
             $where2 = [];
             $where2['vod_id'] = $data['ulog_rid'];
             $res = model('Vod')->infoData($where2);
@@ -644,6 +673,20 @@ class User extends Base
         }
         $data['ulog_points'] = intval($data['ulog_points']);
         $__ualMap = [2 => 'fav', 3 => 'want', 4 => 'play', 5 => 'down'];
+        // 免费视频播放历史不分 sid（与 ulog/progress 同键），换源更新原记录
+        if ($data['ulog_mid'] == 1 && $data['ulog_type'] === 4 && $data['ulog_points'] == 0) {
+            $touched = model('Ulog')->touchFreeVodPlay($uid, $data['ulog_rid'], $data['ulog_sid'], $data['ulog_nid']);
+            if ($touched !== null) {
+                \app\common\model\UserAccessLog::record($__ualMap[4], [
+                    'user_id' => $uid,
+                    'mid'     => 1,
+                    'rid'     => $data['ulog_rid'],
+                ]);
+                $touched['ulog_id'] = intval($touched['info']['ulog_id']);
+                $touched['msg'] = lang('update_ok');
+                return json($touched);
+            }
+        }
         // 已存在则更新时间
         $existing = model('Ulog')->infoData($data);
         if ($existing['code'] == 1) {
@@ -657,7 +700,11 @@ class User extends Base
                     'rid'     => $data['ulog_rid'],
                 ]);
             }
-            return json(['code' => 1, 'msg' => lang('update_ok')]);
+            $ulog_id = !empty($existing['info']['ulog_id']) ? intval($existing['info']['ulog_id']) : 0;
+            // 与 index ajax_ulog 已存在路径对齐：保留完整 info，并补顶层 ulog_id
+            $existing['ulog_id'] = $ulog_id;
+            $existing['msg'] = lang('update_ok');
+            return json($existing);
         }
         if ($data['ulog_points'] > 0) {
             return json(['code' => 2001, 'msg' => lang('index/ulog_fee')]);
@@ -685,10 +732,10 @@ class User extends Base
         if ($check['code'] > 1) return json(['code' => 1401, 'msg' => lang('api/please_login_first')]);
         $uid = intval($check['info']['user_id']);
         $param = $request->param();
-        // 清空某类日志：all=1 且 type=1..5（与 index user/ulog_del 一致）
+        // 清空某类日志：all=1 且 type=1..6（与 index user/ulog_del 一致）
         if (!empty($param['all']) && (string)$param['all'] === '1') {
             $type = isset($param['type']) ? (string)$param['type'] : '';
-            if (!in_array($type, ['1', '2', '3', '4', '5'], true)) {
+            if (!in_array($type, ['1', '2', '3', '4', '5', '6'], true)) {
                 return json(['code' => 1001, 'msg' => lang('api/param_type_required')]);
             }
             $where = ['user_id' => $uid, 'ulog_type' => intval($type)];
@@ -723,9 +770,9 @@ class User extends Base
         $where = ['user_id' => $uid];
         $filter = isset($param['filter']) ? trim($param['filter']) : '';
         if ($filter === 'income') {
-            $where['plog_type'] = ['in', [1, 2, 3, 4, 5, 6, 10, 11]];
+            $where['plog_type'] = ['in', [1, 2, 3, 4, 5, 6, 10, 11, 14, 15]];
         } elseif ($filter === 'expense') {
-            $where['plog_type'] = ['in', [7, 8, 9]];
+            $where['plog_type'] = ['in', [7, 8, 9, 12, 13]];
         }
         $order = 'plog_id desc';
         $res = model('Plog')->listData($where, $order, $page, $limit);
@@ -734,7 +781,7 @@ class User extends Base
         foreach ($list as $row) {
             $r = is_array($row) ? $row : (method_exists($row, 'toArray') ? $row->toArray() : []);
             $pt = isset($r['plog_type']) ? intval($r['plog_type']) : 0;
-            $r['plog_type_text'] = ($pt >= 1 && $pt <= 11) ? mac_get_plog_type_text($pt) : '';
+            $r['plog_type_text'] = mac_get_plog_type_text($pt);
             $r['order_status'] = isset($r['order_status']) ? intval($r['order_status']) : 0;
             $out[] = $r;
         }

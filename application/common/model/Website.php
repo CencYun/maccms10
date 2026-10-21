@@ -450,9 +450,12 @@ class Website extends Base {
                 $res = $this->listData($where,$order,$page,$num,$start,'*',1,$totalshow);
             }
             if($GLOBALS['config']['app']['cache_core']==1 && !$use_rnd_order){
-                Cache::set($cach_name, $res, $cachetime);
+                // 打上表名标签，写路径才能定点作废这一族列表缓存（见 Base::clearListCache()）
+                Cache::tag($this->name)->set($cach_name, $res, $cachetime);
             }
         }
+        // 缓存里的 type/type_1 是建缓存时的快照，按当前分类缓存重挂（见 Base::refreshTypeRelation()）
+        $res = $this->refreshListTypeRelation($res);
         $res['pageurl'] = $pageurl;
         $res['half'] = $half;
         return $res;
@@ -490,6 +493,8 @@ class Website extends Base {
                 Cache::set($key, $info);
             }
         }
+        $info = $this->refreshTypeRelation($info);
+        $info = mac_content_lang_overlay('website', $info);
         return ['code'=>1,'msg'=>lang('obtain_ok'),'info'=>$info];
     }
 
@@ -500,12 +505,7 @@ class Website extends Base {
             return ['code'=>1001,'msg'=>lang('param_err').'：'.$validate->getError() ];
         }
 
-        $key = 'website_detail_'.$data['website_id'];
-        Cache::rm($key);
-        $key = 'website_detail_'.$data['website_en'];
-        Cache::rm($key);
-        $key = 'website_detail_'.$data['website_id'].'_'.$data['website_en'];
-        Cache::rm($key);
+        $this->clearDetailCache($data['website_id'], $data['website_en']);
 
         $type_list = model('Type')->getCache('type_list');
         $type_info = $type_list[$data['type_id']];
@@ -570,7 +570,8 @@ class Website extends Base {
         $ixWebsiteId = !empty($data['website_id']) ? intval($data['website_id']) : intval($this->getLastInsID());
         MeilisearchSync::afterWebsiteSave($ixWebsiteId);
 
-        return ['code'=>1,'msg'=>lang('save_ok')];
+        $this->clearListCache();
+        return ['code'=>1,'msg'=>lang('save_ok'),'website_id'=>$ixWebsiteId];
     }
 
     public function delData($where)
@@ -580,12 +581,11 @@ class Website extends Base {
             return ['code'=>1001,'msg'=>lang('del_err').'：'.$this->getError() ];
         }
         $path = './';
+        $delIds = [];
         foreach($list['list'] as $k=>$v){
+            $delIds[] = intval($v['website_id']);
             MeilisearchSync::deleteWebsite(intval($v['website_id']));
-            $pic = $path.$v['website_pic'];
-            if(file_exists($pic) && (substr($pic,0,8) == "./upload") || count( explode("./",$pic) ) ==1){
-                unlink($pic);
-            }
+            mac_safe_unlink_upload($v['website_pic']);
             if($GLOBALS['config']['view']['website_detail'] ==2 ){
                 $lnk = mac_url_website_detail($v);
                 $lnk = reset_html_filename($lnk);
@@ -598,6 +598,8 @@ class Website extends Base {
         if($res===false){
             return ['code'=>1001,'msg'=>lang('del_err').'：'.$this->getError() ];
         }
+        \app\common\model\ContentLang::deleteByContent('website', $delIds);
+        $this->clearListCache();
         return ['code'=>1,'msg'=>lang('del_ok')];
     }
 
@@ -613,12 +615,10 @@ class Website extends Base {
 
         $list = $this->field('website_id,website_name,website_en')->where($where)->select();
         foreach($list as $k=>$v){
-            $key = 'website_detail_'.$v['website_id'];
-            Cache::rm($key);
-            $key = 'website_detail_'.$v['website_en'];
-            Cache::rm($key);
+            $this->clearDetailCache($v['website_id'], $v['website_en']);
         }
 
+        $this->clearListCache();
         return ['code'=>1,'msg'=>lang('set_ok')];
     }
 

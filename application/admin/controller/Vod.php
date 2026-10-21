@@ -20,6 +20,10 @@ class Vod extends Base
         $param['limit'] = intval($param['limit']) <1 ? $this->_pagesize : $param['limit'];
 
         $where = [];
+        // 资源检测筛选（0 未检测 / 1 正常 / 2 检测失败 / 3 已自动停用 / 4 管理员停用）；字段由升级脚本补，未升级时不筛选
+        if (\app\common\util\ContentCheck::hasColumns('vod') && in_array($param['check'] ?? '', ['0', '1', '2', '3', '4'], true)) {
+            $where['vod_check_state'] = ['eq', intval($param['check'])];
+        }
         if(!empty($param['type'])){
             $where['type_id|type_id_1'] = ['eq',$param['type']];
         }
@@ -183,6 +187,8 @@ class Vod extends Base
             $v['seo_ai_status'] = isset($vodSeoStatusMap[$v['vod_id']]) ? intval($vodSeoStatusMap[$v['vod_id']]) : 0;
         }
 
+        // 未升级站点缺 check_* 字段：补默认值，列表模板直接读取
+        \app\common\util\ContentCheck::fillDefaults('vod', $res['list']);
         $this->assign('list',$res['list']);
         $this->assign('total',$res['total']);
         $this->assign('page',$res['page']);
@@ -551,9 +557,22 @@ class Vod extends Base
             if ($scheduleErr !== '') {
                 return $this->error($scheduleErr);
             }
+            $contentLang = $param['content_lang'] ?? [];
+            unset($param['content_lang']);
             $res = model('Vod')->saveData($param);
             if($res['code']>1){
                 return $this->error($res['msg']);
+            }
+            $vodId = (int)($res['vod_id'] ?? 0);
+            if ($vodId > 0 && is_array($contentLang)) {
+                //默认语言以原始行为准，只写非默认语言的译文（见 mac_content_lang_overlay 注释）
+                $defaultLang = mac_content_lang_default();
+                foreach ($contentLang as $langCode => $fields) {
+                    if ((string)$langCode === $defaultLang || !is_array($fields)) {
+                        continue;
+                    }
+                    model('ContentLang')->saveFields('vod', $vodId, (string)$langCode, $fields, 'manual', 1);
+                }
             }
             return $this->success($res['msg']);
         }
@@ -601,8 +620,44 @@ class Vod extends Base
         $this->assign('vod_plot_list',(array)$info['vod_plot_list']);
 
 
+        //内容级多语言：默认语言永远排第一位（即便后台没勾选它），其后跟已启用的其它语言
+        $content_lang_default = mac_content_lang_default();
+        $content_lang_enabled = array_values(array_unique(array_merge([$content_lang_default], mac_content_lang_allow_list())));
+        $content_lang_data = [];
+        if (!empty($info['vod_id'])) {
+            foreach ($content_lang_enabled as $langCode) {
+                $content_lang_data[$langCode] = model('ContentLang')->getFields('vod', $info['vod_id'], $langCode);
+            }
+        }
+        $this->assign('content_lang_default', $content_lang_default);
+        $this->assign('content_lang_enabled', $content_lang_enabled);
+        $this->assign('content_lang_multi', count($content_lang_enabled) > 1);
+        $this->assign('content_lang_data', $content_lang_data);
+        $this->assign('content_translate_available', mac_content_translate_available());
+
         $this->assign('title',lang('admin/vod/title'));
         return $this->fetch('admin@vod/info');
+    }
+
+    /**
+     * 调用已安装的翻译插件（若有）翻译单个字段；没有插件注册时返回空字符串，前端据此禁用按钮。
+     */
+    public function contentLangTranslate()
+    {
+        $text = (string)input('post.text', '');
+        $from = (string)input('post.from', mac_content_lang_default());
+        $to = (string)input('post.to', '');
+        if ($text === '' || $to === '') {
+            return $this->error(lang('param_err'));
+        }
+        if (!mac_content_translate_rate_limit($this->_admin['admin_id'])) {
+            return $this->error(lang('frequently'));
+        }
+        $result = mac_content_translate($text, $from, $to, ['content_type' => 'vod']);
+        if ($result === '') {
+            return $this->error(lang('admin/vod/content_lang_translate_err'));
+        }
+        return json(['code' => 1, 'msg' => 'ok', 'data' => $result]);
     }
 
     public function aiSeoGenerate()
